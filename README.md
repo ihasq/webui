@@ -1,55 +1,78 @@
 # WebUI
 
-OpenAI互換APIを使用するチャットUIです。Ollama、OpenAI、Anthropic、Google Generative AIなど、様々なLLMプロバイダーと連携できます。
+A modern, lightweight chat interface for OpenAI-compatible APIs.
 
-## 機能
+Connect to Ollama, OpenAI, Anthropic, Google AI, or any OpenAI-compatible endpoint.
 
-- **チャット**: テキストメッセージの送受信、ストリーミング対応
-- **ファイル添付**: 画像、PDF、テキストファイルのアップロード
-- **会話管理**: 複数の会話を保存・復元・複製
-- **モデル選択**: models.devレジストリから利用可能なモデルを検索・選択
-- **推論パラメータ**: Temperature、Top-P、Top-K、Max Tokens等を調整可能
-- **メッセージ編集**: ユーザーメッセージの編集・再送信、アシスタント応答の再生成
-- **リッチレンダリング**: Markdown、数式（KaTeX）、コードブロック、Mermaid図
-- **ダークモード**: ライト/ダークテーマの切り替え
-- **レスポンシブ**: モバイル・タブレット対応
+## Features
 
-## 技術スタック
+- **Streaming responses** — Real-time token-by-token output
+- **File attachments** — Images, PDFs, and text files
+- **Rich rendering** — Markdown, LaTeX math, code highlighting, Mermaid diagrams
+- **Conversation management** — Save, restore, and duplicate chats
+- **Model registry** — Search and select models from models.dev
+- **Inference controls** — Temperature, top-p, top-k, max tokens, and more
+- **Dark mode** — Light and dark themes
+- **Responsive** — Works on desktop and mobile
 
-- React 19 + TypeScript
-- Vite
-- Tailwind CSS 4
-- Streamdown（マークダウンレンダリング）
-- IndexedDB（添付ファイル保存）
-
-## セットアップ
+## Quick Start
 
 ```bash
+# Clone the repository
+git clone https://github.com/ihasq/webui.git
+cd webui
+
+# Install dependencies
 npm install
+
+# Start development server
 npm run dev
 ```
 
-開発サーバーが起動し、ブラウザでアクセスできます。
+Open http://localhost:5173 in your browser.
 
-## ビルド
+## Configuration
+
+Click the settings icon in the sidebar to configure:
+
+| Setting | Description |
+|---------|-------------|
+| API Endpoint | Your LLM server URL (e.g., `http://localhost:11434/v1` for Ollama) |
+| API Key | Required for cloud providers |
+| Model | Model name or select from registry |
+| System Prompt | Custom system instructions |
+
+### Example: Ollama
+
+```
+API Endpoint: http://localhost:11434/v1
+Model: llama3.2
+```
+
+### Example: OpenAI
+
+```
+API Endpoint: https://api.openai.com/v1
+API Key: sk-...
+Model: gpt-4o
+```
+
+## Build
 
 ```bash
 npm run build
-npm run preview
 ```
 
-## 対応API
+Output is in the `dist` directory, ready to deploy to any static hosting.
 
-OpenAI互換のAPIエンドポイントに対応しています：
+## Tech Stack
 
-- Ollama（ローカルLLM）
-- OpenAI
-- Anthropic
-- Google Generative AI
-- その他OpenAI互換エンドポイント
+- [React 19](https://react.dev)
+- [Vite](https://vite.dev)
+- [Tailwind CSS 4](https://tailwindcss.com)
+- [Streamdown](https://github.com/nicholasxjy/streamdown) — Markdown rendering
+- [KaTeX](https://katex.org) — Math typesetting
 
-設定画面からAPIエンドポイント、APIキー、モデル名を設定してください。
-
-## ライセンス
+## License
 
 MIT
