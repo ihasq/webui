@@ -145,6 +145,27 @@ function EditableUserMessage({
 
   return (
     <div className="group/msg flex flex-col items-end gap-1">
+      {message.attachments && message.attachments.length > 0 && (
+        <div className="flex flex-wrap justify-end gap-1.5">
+          {message.attachments.map((a, i) =>
+            a.mimeType.startsWith("image/") && a.dataUrl ? (
+              <img
+                key={i}
+                src={a.dataUrl}
+                alt={a.name}
+                className="max-h-48 rounded-lg border object-cover"
+              />
+            ) : (
+              <div
+                key={i}
+                className="rounded-lg border bg-muted px-3 py-1.5 text-xs text-muted-foreground"
+              >
+                {a.name}
+              </div>
+            )
+          )}
+        </div>
+      )}
       <div className="rounded-2xl rounded-tr-sm bg-primary px-4 py-2 text-primary-foreground text-sm whitespace-pre-wrap">
         {message.content}
       </div>

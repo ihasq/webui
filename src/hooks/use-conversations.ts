@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import type { Message } from "./use-chat";
+import { deleteAttachments } from "./use-attachment-store";
 
 export interface Conversation {
   id: string;
@@ -21,7 +22,26 @@ function load(): Conversation[] {
 }
 
 function save(conversations: Conversation[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
+  // Strip base64 attachment data before saving to avoid exceeding localStorage quota
+  const stripped = conversations.map((c) => ({
+    ...c,
+    messages: c.messages.map((m) => {
+      if (!m.attachments?.length) return m;
+      return {
+        ...m,
+        attachments: m.attachments.map((a) => ({
+          name: a.name,
+          mimeType: a.mimeType,
+          dataUrl: "", // strip data to save space
+        })),
+      };
+    }),
+  }));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stripped));
+  } catch {
+    // quota still exceeded — skip save silently
+  }
 }
 
 export function useConversations() {
@@ -73,6 +93,12 @@ export function useConversations() {
 
   const deleteConversation = useCallback(
     (id: string) => {
+      const conv = conversations.find((c) => c.id === id);
+      if (conv) {
+        for (const m of conv.messages) {
+          if (m.attachments?.length) deleteAttachments(m.id);
+        }
+      }
       const next = conversations.filter((c) => c.id !== id);
       persist(next);
       if (activeId === id) setActiveId(null);

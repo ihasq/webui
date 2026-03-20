@@ -1,9 +1,17 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { saveAttachments } from "./use-attachment-store";
+
+export interface Attachment {
+  name: string;
+  mimeType: string;
+  dataUrl: string;
+}
 
 export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  attachments?: Attachment[];
 }
 
 export interface InferenceParams {
@@ -53,6 +61,29 @@ export function useChat(
     onMessagesChangeRef.current?.(messages);
   }, [messages]);
 
+  /** Convert a Message to the OpenAI API content format */
+  function messageToApi(m: Message): { role: string; content: unknown } {
+    if (!m.attachments?.length) {
+      return { role: m.role, content: m.content };
+    }
+    const parts: Record<string, unknown>[] = [];
+    for (const a of m.attachments) {
+      if (a.mimeType.startsWith("image/")) {
+        parts.push({ type: "image_url", image_url: { url: a.dataUrl } });
+      } else {
+        // For non-image files, include as text with filename context
+        parts.push({
+          type: "text",
+          text: `[Attached file: ${a.name}]`,
+        });
+      }
+    }
+    if (m.content) {
+      parts.push({ type: "text", text: m.content });
+    }
+    return { role: m.role, content: parts };
+  }
+
   const loadMessages = useCallback((msgs: Message[]) => {
     setMessages(msgs);
   }, []);
@@ -69,7 +100,7 @@ export function useChat(
    */
   const streamResponse = useCallback(
     async (
-      history: { role: string; content: string }[],
+      history: { role: string; content: unknown }[],
       assistantId: string,
     ) => {
       const cfg = configRef.current;
@@ -77,7 +108,7 @@ export function useChat(
       abortRef.current = abortController;
 
       try {
-        const apiMessages: { role: string; content: string }[] = [];
+        const apiMessages: { role: string; content: unknown }[] = [];
         if (cfg.params.systemPrompt.trim()) {
           apiMessages.push({
             role: "system",
@@ -187,13 +218,14 @@ export function useChat(
   );
 
   const send = useCallback(
-    async (content: string) => {
-      if (!content.trim() || isLoading) return;
+    async (content: string, attachments?: Attachment[]) => {
+      if ((!content.trim() && (!attachments || attachments.length === 0)) || isLoading) return;
 
       const userMessage: Message = {
         id: crypto.randomUUID(),
         role: "user",
         content: content.trim(),
+        attachments: attachments?.length ? attachments : undefined,
       };
       const assistantMessage: Message = {
         id: crypto.randomUUID(),
@@ -201,13 +233,15 @@ export function useChat(
         content: "",
       };
 
+      // Persist attachments to IndexedDB
+      if (userMessage.attachments?.length) {
+        saveAttachments(userMessage.id, userMessage.attachments);
+      }
+
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
       setIsLoading(true);
 
-      const history = [...messages, userMessage].map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      const history = [...messages, userMessage].map(messageToApi);
 
       await streamResponse(history, assistantMessage.id);
     },
@@ -245,7 +279,7 @@ export function useChat(
       setMessages([...kept, assistantMessage]);
       setIsLoading(true);
 
-      const history = kept.map((m) => ({ role: m.role, content: m.content }));
+      const history = kept.map(messageToApi);
       await streamResponse(history, assistantMessage.id);
     },
     [isLoading, messages, streamResponse]
@@ -269,7 +303,7 @@ export function useChat(
       setMessages([...kept, assistantMessage]);
       setIsLoading(true);
 
-      const history = kept.map((m) => ({ role: m.role, content: m.content }));
+      const history = kept.map(messageToApi);
       await streamResponse(history, assistantMessage.id);
     },
     [isLoading, messages, streamResponse]

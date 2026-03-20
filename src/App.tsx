@@ -1,11 +1,93 @@
 import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from "react";
-import { useChat, defaultParams, type ChatConfig } from "@/hooks/use-chat";
+import { useChat, defaultParams, type ChatConfig, type Attachment, type Message } from "@/hooks/use-chat";
+import { loadAttachments } from "@/hooks/use-attachment-store";
 import { useConversations } from "@/hooks/use-conversations";
 import { ChatMessage } from "@/components/chat-message";
 import { Sidebar } from "@/components/sidebar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Square } from "lucide-react";
+import { Send, Square, Plus, X } from "lucide-react";
+
+function AttachmentList({
+  attachments,
+  onReorder,
+  onRemove,
+}: {
+  attachments: Attachment[];
+  onReorder: (attachments: Attachment[]) => void;
+  onRemove: (index: number) => void;
+}) {
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
+
+  const handleDragStart = (i: number) => {
+    setDragIdx(i);
+  };
+
+  const handleDragOver = (e: React.DragEvent, i: number) => {
+    e.preventDefault();
+    setOverIdx(i);
+  };
+
+  const handleDrop = (e: React.DragEvent, dropIdx: number) => {
+    e.preventDefault();
+    if (dragIdx === null || dragIdx === dropIdx) {
+      setDragIdx(null);
+      setOverIdx(null);
+      return;
+    }
+    const next = [...attachments];
+    const [moved] = next.splice(dragIdx, 1);
+    next.splice(dropIdx, 0, moved);
+    onReorder(next);
+    setDragIdx(null);
+    setOverIdx(null);
+  };
+
+  const handleDragEnd = () => {
+    setDragIdx(null);
+    setOverIdx(null);
+  };
+
+  return (
+    <div className="flex gap-2 overflow-x-auto px-2 pt-2">
+      {attachments.map((a, i) => (
+        <div
+          key={`${a.name}-${i}`}
+          draggable
+          onDragStart={() => handleDragStart(i)}
+          onDragOver={(e) => handleDragOver(e, i)}
+          onDrop={(e) => handleDrop(e, i)}
+          onDragEnd={handleDragEnd}
+          className={`group/att relative shrink-0 cursor-grab overflow-hidden rounded-lg border bg-muted transition-all active:cursor-grabbing ${
+            dragIdx === i ? "opacity-40" : ""
+          } ${overIdx === i && dragIdx !== i ? "ring-2 ring-ring" : ""}`}
+        >
+          {a.mimeType.startsWith("image/") ? (
+            <img
+              src={a.dataUrl}
+              alt={a.name}
+              className="h-16 w-16 object-cover"
+              draggable={false}
+            />
+          ) : (
+            <div className="flex h-16 w-24 items-center justify-center px-2">
+              <span className="truncate text-xs text-muted-foreground">
+                {a.name}
+              </span>
+            </div>
+          )}
+          <button
+            onClick={() => onRemove(i)}
+            className="absolute top-0.5 right-0.5 flex size-4 items-center justify-center rounded-full bg-foreground/70 text-background opacity-0 transition-opacity group-hover/att:opacity-100"
+          >
+            <X className="size-2.5" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const CONFIG_KEY = "webui-config";
 
@@ -29,6 +111,8 @@ function saveConfig(config: ChatConfig) {
 export default function App() {
   const [config, setConfig] = useState<ChatConfig>(loadConfig);
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDark, setIsDark] = useState(() =>
     window.matchMedia("(prefers-color-scheme: dark)").matches
   );
@@ -81,14 +165,32 @@ export default function App() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
-  // Select conversation: load its messages
+  // Restore attachment data from IndexedDB for messages that have stripped attachments
+  const hydrateAttachments = useCallback(async (msgs: Message[]): Promise<Message[]> => {
+    const hydrated = await Promise.all(
+      msgs.map(async (m) => {
+        if (!m.attachments?.length) return m;
+        // If dataUrl is empty, restore from IndexedDB
+        if (m.attachments.some((a) => !a.dataUrl)) {
+          const stored = await loadAttachments(m.id);
+          if (stored.length) return { ...m, attachments: stored };
+        }
+        return m;
+      })
+    );
+    return hydrated;
+  }, []);
+
+  // Select conversation: load its messages with attachment hydration
   const handleSelect = useCallback(
-    (id: string) => {
+    async (id: string) => {
       selectConversation(id);
       const conv = conversations.find((c) => c.id === id);
-      loadMessages(conv?.messages ?? []);
+      const msgs = conv?.messages ?? [];
+      const hydrated = await hydrateAttachments(msgs);
+      loadMessages(hydrated);
     },
-    [conversations, selectConversation, loadMessages]
+    [conversations, selectConversation, loadMessages, hydrateAttachments]
   );
 
   // New chat: clear messages and deselect
@@ -116,18 +218,48 @@ export default function App() {
     [duplicateConversation]
   );
 
+  const handleFileSelect = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files) return;
+
+      for (const file of Array.from(files)) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          setAttachments((prev) => [
+            ...prev,
+            {
+              name: file.name,
+              mimeType: file.type,
+              dataUrl: reader.result as string,
+            },
+          ]);
+        };
+        reader.readAsDataURL(file);
+      }
+      // Reset so the same file can be selected again
+      e.target.value = "";
+    },
+    []
+  );
+
+  const removeAttachment = useCallback((index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
   const handleSend = useCallback(() => {
-    if (!input.trim() || isLoading) return;
+    if ((!input.trim() && attachments.length === 0) || isLoading) return;
 
     if (!activeIdRef.current) {
       const id = createConversation();
       activeIdRef.current = id;
     }
 
-    chatSend(input);
+    chatSend(input, attachments.length > 0 ? attachments : undefined);
     setInput("");
+    setAttachments([]);
     textareaRef.current?.focus();
-  }, [input, isLoading, createConversation, chatSend]);
+  }, [input, attachments, isLoading, createConversation, chatSend]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -187,33 +319,60 @@ export default function App() {
 
         {/* Floating input */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 p-4">
-          <div className="pointer-events-auto mx-auto flex max-w-3xl gap-2 rounded-xl border bg-background/60 p-2 shadow-lg backdrop-blur-md">
-            <Textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Type a message... (Shift+Enter for new line)"
-              className="min-h-10 max-h-40 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:border-0"
-              rows={1}
-            />
-            {isLoading ? (
-              <Button
-                variant="destructive"
-                onClick={stop}
-                className="aspect-square h-auto shrink-0 self-stretch"
-              >
-                <Square className="size-4" />
-              </Button>
-            ) : (
-              <Button
-                onClick={handleSend}
-                disabled={!input.trim()}
-                className="aspect-square h-auto shrink-0 self-stretch"
-              >
-                <Send className="size-4" />
-              </Button>
+          <div className="pointer-events-auto mx-auto max-w-3xl rounded-xl border bg-background/60 shadow-lg backdrop-blur-md">
+            {/* Attachment previews (drag to reorder) */}
+            {attachments.length > 0 && (
+              <AttachmentList
+                attachments={attachments}
+                onReorder={setAttachments}
+                onRemove={removeAttachment}
+              />
             )}
+
+            {/* Input row */}
+            <div className="flex gap-2 p-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*,.pdf,.txt,.csv,.json,.md"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <Button
+                variant="ghost"
+                onClick={() => fileInputRef.current?.click()}
+                className="aspect-square h-auto shrink-0 self-stretch"
+              >
+                <Plus className="size-4" />
+              </Button>
+              <Textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Type a message... (Shift+Enter for new line)"
+                className="min-h-10 max-h-40 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:border-0"
+                rows={1}
+              />
+              {isLoading ? (
+                <Button
+                  variant="destructive"
+                  onClick={stop}
+                  className="aspect-square h-auto shrink-0 self-stretch"
+                >
+                  <Square className="size-4" />
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleSend}
+                  disabled={!input.trim() && attachments.length === 0}
+                  className="aspect-square h-auto shrink-0 self-stretch"
+                >
+                  <Send className="size-4" />
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </div>
