@@ -1,4 +1,5 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { get, set } from "idb-keyval";
 import type { Message } from "./use-chat";
 import { deleteAttachments } from "./use-attachment-store";
 
@@ -11,19 +12,9 @@ export interface Conversation {
 
 const STORAGE_KEY = "webui-conversations";
 
-function load(): Conversation[] {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) return JSON.parse(stored);
-  } catch {
-    // ignore
-  }
-  return [];
-}
-
-function save(conversations: Conversation[]) {
-  // Strip base64 attachment data before saving to avoid exceeding localStorage quota
-  const stripped = conversations.map((c) => ({
+// Strip base64 attachment data before saving to reduce storage size
+function stripAttachments(conversations: Conversation[]): Conversation[] {
+  return conversations.map((c) => ({
     ...c,
     messages: c.messages.map((m) => {
       if (!m.attachments?.length) return m;
@@ -32,27 +23,54 @@ function save(conversations: Conversation[]) {
         attachments: m.attachments.map((a) => ({
           name: a.name,
           mimeType: a.mimeType,
-          dataUrl: "", // strip data to save space
+          dataUrl: "", // strip data; full data stored separately via use-attachment-store
         })),
       };
     }),
   }));
+}
+
+async function loadFromIdb(): Promise<Conversation[]> {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(stripped));
+    const stored = await get<Conversation[]>(STORAGE_KEY);
+    if (stored) return stored;
+    // Migrate from localStorage if exists
+    const legacy = localStorage.getItem(STORAGE_KEY);
+    if (legacy) {
+      const parsed = JSON.parse(legacy) as Conversation[];
+      await set(STORAGE_KEY, parsed);
+      localStorage.removeItem(STORAGE_KEY);
+      return parsed;
+    }
   } catch {
-    // quota still exceeded — skip save silently
+    // ignore
   }
+  return [];
+}
+
+async function saveToIdb(conversations: Conversation[]) {
+  const stripped = stripAttachments(conversations);
+  await set(STORAGE_KEY, stripped);
 }
 
 export function useConversations() {
-  const [conversations, setConversations] = useState<Conversation[]>(load);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Load conversations from IndexedDB on mount
+  useEffect(() => {
+    loadFromIdb().then((loaded) => {
+      setConversations(loaded);
+      setIsLoading(false);
+    });
+  }, []);
 
   const active = conversations.find((c) => c.id === activeId) ?? null;
 
   const persist = useCallback((next: Conversation[]) => {
     setConversations(next);
-    save(next);
+    saveToIdb(next);
   }, []);
 
   const createConversation = useCallback((): string => {
@@ -84,7 +102,7 @@ export function useConversations() {
               : c.title;
           return { ...c, messages, title };
         });
-        save(next);
+        saveToIdb(next);
         return next;
       });
     },
@@ -131,6 +149,7 @@ export function useConversations() {
     conversations,
     active,
     activeId,
+    isLoading,
     createConversation,
     selectConversation,
     updateMessages,

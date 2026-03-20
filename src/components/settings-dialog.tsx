@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Settings, RefreshCw } from "lucide-react";
-import type { ChatConfig, InferenceParams } from "@/hooks/use-chat";
+import type { ChatConfig, InferenceParams, ReasoningEffort } from "@/hooks/use-chat";
 import { useModelsRegistry, type ProviderInfo } from "@/hooks/use-models-registry";
 import { ModelSearch } from "@/components/model-search";
 
@@ -369,6 +369,32 @@ export function SettingsDialog({ config, onChange }: SettingsDialogProps) {
                 value={config.params.stop}
                 onChange={(e) => updateParams({ stop: e.target.value })}
               />
+            </div>
+            <div className="grid gap-1.5">
+              <div className="flex items-baseline justify-between">
+                <Label htmlFor="reasoningEffort">Reasoning Effort</Label>
+                <span className="text-xs text-muted-foreground">
+                  for o1/o3 models
+                </span>
+              </div>
+              <Select
+                value={config.params.reasoningEffort ?? ""}
+                onValueChange={(v) =>
+                  updateParams({
+                    reasoningEffort: v === "" ? null : (v as ReasoningEffort),
+                  })
+                }
+              >
+                <SelectTrigger id="reasoningEffort" className="w-full">
+                  <SelectValue placeholder="Default" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Default</SelectItem>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </fieldset>
         </div>

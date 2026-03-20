@@ -14,6 +14,8 @@ export interface Message {
   attachments?: Attachment[];
 }
 
+export type ReasoningEffort = "low" | "medium" | "high";
+
 export interface InferenceParams {
   systemPrompt: string;
   temperature: number | null;
@@ -24,6 +26,7 @@ export interface InferenceParams {
   presencePenalty: number | null;
   stop: string;
   seed: number | null;
+  reasoningEffort: ReasoningEffort | null;
 }
 
 export interface ChatConfig {
@@ -43,6 +46,7 @@ export const defaultParams: InferenceParams = {
   presencePenalty: null,
   stop: "",
   seed: null,
+  reasoningEffort: null,
 };
 
 export function useChat(
@@ -136,6 +140,7 @@ export function useChat(
         if (params.frequencyPenalty !== null) body.frequency_penalty = params.frequencyPenalty;
         if (params.presencePenalty !== null) body.presence_penalty = params.presencePenalty;
         if (params.seed !== null) body.seed = params.seed;
+        if (params.reasoningEffort !== null) body.reasoning_effort = params.reasoningEffort;
 
         const stopSeqs = params.stop
           .split(",")

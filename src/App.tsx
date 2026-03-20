@@ -1,12 +1,33 @@
 import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from "react";
 import { useChat, defaultParams, type ChatConfig, type Attachment, type Message } from "@/hooks/use-chat";
 import { loadAttachments } from "@/hooks/use-attachment-store";
-import { useConversations } from "@/hooks/use-conversations";
+import { useConversations, type Conversation } from "@/hooks/use-conversations";
 import { ChatMessage } from "@/components/chat-message";
 import { Sidebar } from "@/components/sidebar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Square, Plus, X } from "lucide-react";
+
+/** Generate a URL hash for a conversation: first user prompt + UUID */
+function generateConversationHash(conv: Conversation): string {
+  const firstUserMessage = conv.messages.find((m) => m.role === "user");
+  const prefix = firstUserMessage?.content ?? "";
+  return encodeURIComponent(`${prefix}${conv.id}`);
+}
+
+/** Find a conversation by its URL hash */
+function findConversationByHash(
+  conversations: Conversation[],
+  hash: string
+): Conversation | undefined {
+  if (!hash) return undefined;
+  const decoded = decodeURIComponent(hash);
+  return conversations.find((conv) => {
+    const firstUserMessage = conv.messages.find((m) => m.role === "user");
+    const prefix = firstUserMessage?.content ?? "";
+    return `${prefix}${conv.id}` === decoded;
+  });
+}
 
 function AttachmentList({
   attachments,
@@ -123,6 +144,7 @@ export default function App() {
   const {
     conversations,
     activeId,
+    isLoading: conversationsLoading,
     createConversation,
     selectConversation,
     updateMessages,
@@ -133,6 +155,8 @@ export default function App() {
 
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
+  const conversationsRef = useRef(conversations);
+  conversationsRef.current = conversations;
 
   // Save messages to conversation store (one-way: chat → store)
   const onMessagesChange = useCallback(
@@ -181,30 +205,88 @@ export default function App() {
     return hydrated;
   }, []);
 
-  // Select conversation: load its messages with attachment hydration
+  // Select conversation: load its messages with attachment hydration and update URL hash
   const handleSelect = useCallback(
-    async (id: string) => {
+    async (id: string, updateHash = true) => {
       selectConversation(id);
       const conv = conversations.find((c) => c.id === id);
-      const msgs = conv?.messages ?? [];
+      if (!conv) return;
+
+      // Update URL hash
+      if (updateHash) {
+        const hash = generateConversationHash(conv);
+        window.history.replaceState(null, "", `#${hash}`);
+      }
+
+      const msgs = conv.messages ?? [];
       const hydrated = await hydrateAttachments(msgs);
       loadMessages(hydrated);
     },
     [conversations, selectConversation, loadMessages, hydrateAttachments]
   );
 
-  // New chat: clear messages and deselect
+  // Track if initial hash navigation has been done
+  const initialHashHandled = useRef(false);
+
+  // Handle URL hash on initial load (after conversations are loaded)
+  useEffect(() => {
+    if (conversationsLoading || initialHashHandled.current) return;
+
+    const hash = window.location.hash.slice(1);
+    if (hash) {
+      const conv = findConversationByHash(conversations, hash);
+      if (conv) {
+        initialHashHandled.current = true;
+        handleSelect(conv.id, false);
+      } else {
+        // Hash doesn't match any conversation: clear hash
+        initialHashHandled.current = true;
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+    } else {
+      initialHashHandled.current = true;
+    }
+  }, [conversationsLoading, conversations, handleSelect]);
+
+  // Listen for hash changes while app is running
+  useEffect(() => {
+    const handleHashChange = async () => {
+      const hash = window.location.hash.slice(1);
+      if (!hash) {
+        newChat();
+        clear();
+        return;
+      }
+
+      const conv = findConversationByHash(conversationsRef.current, hash);
+      if (conv) {
+        await handleSelect(conv.id, false);
+      } else {
+        // Hash doesn't match any conversation: clear hash
+        window.history.replaceState(null, "", window.location.pathname);
+        newChat();
+        clear();
+      }
+    };
+
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, [handleSelect, newChat, clear]);
+
+  // New chat: clear messages, deselect, and clear URL hash
   const handleNew = useCallback(() => {
     newChat();
     clear();
+    window.history.replaceState(null, "", window.location.pathname);
   }, [newChat, clear]);
 
-  // Delete conversation: if active, also clear messages
+  // Delete conversation: if active, also clear messages and hash
   const handleDelete = useCallback(
     (id: string) => {
       deleteConversation(id);
       if (activeIdRef.current === id) {
         clear();
+        window.history.replaceState(null, "", window.location.pathname);
       }
     },
     [deleteConversation, clear]
@@ -250,12 +332,22 @@ export default function App() {
   const handleSend = useCallback(() => {
     if ((!input.trim() && attachments.length === 0) || isLoading) return;
 
-    if (!activeIdRef.current) {
-      const id = createConversation();
-      activeIdRef.current = id;
+    let convId = activeIdRef.current;
+    const isNewConversation = !convId;
+
+    if (!convId) {
+      convId = createConversation();
+      activeIdRef.current = convId;
     }
 
     chatSend(input, attachments.length > 0 ? attachments : undefined);
+
+    // Update URL hash (for new conversations, this is the first user message)
+    if (isNewConversation && convId) {
+      const hash = encodeURIComponent(`${input.trim()}${convId}`);
+      window.history.replaceState(null, "", `#${hash}`);
+    }
+
     setInput("");
     setAttachments([]);
     textareaRef.current?.focus();
