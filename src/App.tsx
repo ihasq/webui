@@ -425,6 +425,19 @@ export default function App() {
     [regenerate]
   );
 
+  // Prevent auto-scroll when focusing textarea on mobile
+  const handleTextareaFocus = useCallback(() => {
+    const scrollTop = scrollRef.current?.scrollTop ?? 0;
+    requestAnimationFrame(() => {
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollTop;
+      }
+    });
+  }, []);
+
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
       <Sidebar
@@ -509,6 +522,7 @@ export default function App() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
+                onFocus={handleTextareaFocus}
                 placeholder="Type prompt..."
                 className="min-h-10 max-h-40 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:border-0"
                 rows={1}
