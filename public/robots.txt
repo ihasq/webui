@@ -2,9 +2,3 @@
 
 User-agent: *
 Allow: /
-
-# Sitemap
-Sitemap: /sitemap.xml
-
-# Crawl-delay (optional, for polite crawlers)
-Crawl-delay: 1
