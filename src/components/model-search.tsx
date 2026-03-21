@@ -148,7 +148,7 @@ export function ModelSearch({ providers, onSelect }: ModelSearchProps) {
   };
 
   return (
-    <div ref={containerRef} className="relative grid gap-1.5">
+    <div ref={containerRef} className="relative grid min-w-0 gap-1.5">
       <Label>Search Models</Label>
       <div className="relative">
         <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />

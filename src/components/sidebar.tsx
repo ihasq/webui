@@ -1,4 +1,5 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState } from "react";
+import { MarqueeText } from "@/components/ui/marquee-text";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -18,12 +19,15 @@ import {
   PanelLeftClose,
   History,
   EllipsisVertical,
+  Search,
+  ArrowLeft,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 
 interface SidebarProps {
   conversations: Conversation[];
   activeId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, searchQuery?: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
@@ -33,55 +37,6 @@ interface SidebarProps {
   onToggleOpen: () => void;
 }
 
-/** Text that scrolls left when `hovering` is true and content overflows */
-function MarqueeText({ text, hovering }: { text: string; hovering: boolean }) {
-  const outerRef = useRef<HTMLSpanElement>(null);
-  const innerRef = useRef<HTMLSpanElement>(null);
-  const rafRef = useRef(0);
-
-  useEffect(() => {
-    const inner = innerRef.current;
-    if (!inner) return;
-
-    if (!hovering) {
-      cancelAnimationFrame(rafRef.current);
-      inner.style.transform = "translateX(0)";
-      return;
-    }
-
-    const outer = outerRef.current;
-    if (!outer) return;
-    const distance = inner.scrollWidth - outer.clientWidth;
-    if (distance <= 0) return;
-
-    const speed = 30; // px per second
-    const duration = (distance / speed) * 1000;
-    const startTime = performance.now();
-
-    const tick = (now: number) => {
-      const elapsed = now - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      inner.style.transform = `translateX(${-distance * progress}px)`;
-      if (progress < 1) {
-        rafRef.current = requestAnimationFrame(tick);
-      }
-    };
-    rafRef.current = requestAnimationFrame(tick);
-
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [hovering, text]);
-
-  return (
-    <span ref={outerRef} className="block overflow-hidden">
-      <span
-        ref={innerRef}
-        className="inline-block whitespace-nowrap transition-none"
-      >
-        {text}
-      </span>
-    </span>
-  );
-}
 
 function ConversationItem({
   conv,
@@ -124,18 +79,26 @@ function ConversationItem({
         <div
           className={cn(
             "h-full w-6 bg-gradient-to-l to-transparent",
-            isActive ? "from-sidebar-accent" : "from-sidebar"
+            isActive
+              ? "from-sidebar-accent"
+              : hovered
+                ? "from-sidebar-accent/50"
+                : "from-sidebar"
           )}
         />
         <div
           className={cn(
-            "flex items-center pr-1",
-            isActive ? "bg-sidebar-accent" : "bg-sidebar"
+            "flex h-full items-center pr-1",
+            isActive
+              ? "bg-sidebar-accent"
+              : hovered
+                ? "bg-sidebar-accent/50"
+                : "bg-sidebar"
           )}
         >
           <DropdownMenu>
             <DropdownMenuTrigger
-              render={<Button variant="ghost" size="icon-xs" />}
+              render={<Button variant="ghost" size="icon-xs" className="hover:bg-transparent dark:hover:bg-transparent" />}
               onClick={(e: React.MouseEvent) => e.stopPropagation()}
             >
               <EllipsisVertical className="size-3.5" />
@@ -180,6 +143,10 @@ export function Sidebar({
   isOpen,
   onToggleOpen,
 }: SidebarProps) {
+  const [searchMode, setSearchMode] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   const closeSidebarOnMobile = () => {
     if (window.innerWidth < 768) {
       onToggleOpen();
@@ -188,13 +155,36 @@ export function Sidebar({
 
   const handleNew = () => {
     onNew();
+    setSearchMode(false);
+    setSearchQuery("");
     closeSidebarOnMobile();
   };
 
   const handleSelect = (id: string) => {
-    onSelect(id);
+    onSelect(id, searchQuery || undefined);
+    setSearchMode(false);
+    setSearchQuery("");
     closeSidebarOnMobile();
   };
+
+  const enterSearchMode = () => {
+    setSearchMode(true);
+    setTimeout(() => searchInputRef.current?.focus(), 0);
+  };
+
+  const exitSearchMode = () => {
+    setSearchMode(false);
+    setSearchQuery("");
+  };
+
+  // Filter conversations based on search query
+  const filteredConversations = searchQuery
+    ? conversations.filter((conv) =>
+        conv.messages.some((msg) =>
+          msg.content.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+      )
+    : conversations;
 
   return (
     <>
@@ -226,29 +216,44 @@ export function Sidebar({
       >
         {/* Top */}
         <div className="flex shrink-0 items-center gap-1 border-b p-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="flex-1 justify-start gap-2"
-            onClick={handleNew}
-          >
-            <Plus className="size-4" />
-            New chat
-          </Button>
           <Button variant="ghost" size="icon" onClick={onToggleOpen}>
             <PanelLeftClose className="size-4" />
           </Button>
+          {searchMode ? (
+            <>
+              <Button variant="ghost" size="icon" onClick={exitSearchMode}>
+                <ArrowLeft className="size-4" />
+              </Button>
+              <Input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Search messages..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-8 flex-1"
+              />
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" size="icon" onClick={handleNew}>
+                <Plus className="size-4" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={enterSearchMode}>
+                <Search className="size-4" />
+              </Button>
+            </>
+          )}
         </div>
 
         {/* Conversation list */}
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-2">
-          {conversations.length === 0 ? (
+          {filteredConversations.length === 0 ? (
             <p className="px-2 py-4 text-center text-xs text-muted-foreground">
-              No conversations yet
+              {searchQuery ? "No matching conversations" : "No conversations yet"}
             </p>
           ) : (
             <div className="grid gap-0.5">
-              {conversations.map((conv) => (
+              {filteredConversations.map((conv) => (
                 <ConversationItem
                   key={conv.id}
                   conv={conv}

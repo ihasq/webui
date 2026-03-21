@@ -15,6 +15,40 @@ import { toast } from "sonner";
 
 const math = createMathPlugin({ singleDollarTextMath: true });
 
+/** Highlight matching text within a string */
+function HighlightedText({ text, query }: { text: string; query?: string | null }) {
+  if (!query) {
+    return <>{text}</>;
+  }
+
+  const parts: React.ReactNode[] = [];
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  let lastIndex = 0;
+  let matchIndex: number;
+
+  while ((matchIndex = lowerText.indexOf(lowerQuery, lastIndex)) !== -1) {
+    // Add text before match
+    if (matchIndex > lastIndex) {
+      parts.push(text.slice(lastIndex, matchIndex));
+    }
+    // Add highlighted match
+    parts.push(
+      <mark key={matchIndex} className="bg-yellow-300 dark:bg-yellow-600 rounded px-0.5">
+        {text.slice(matchIndex, matchIndex + query.length)}
+      </mark>
+    );
+    lastIndex = matchIndex + query.length;
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return <>{parts}</>;
+}
+
 function convertMathDelimiters(md: string): string {
   const lines = md.split("\n");
   const result: string[] = [];
@@ -50,6 +84,8 @@ interface ChatMessageProps {
   onEdit: (id: string, content: string) => void;
   onResend: (id: string, content: string) => Promise<void>;
   onRegenerate: (id: string) => Promise<void>;
+  searchHighlight?: string | null;
+  onHighlightShown?: () => void;
 }
 
 function ReasoningBlock({
@@ -101,25 +137,97 @@ function ReasoningBlock({
   );
 }
 
+/** Highlight matching text in a DOM element by wrapping matches in <mark> tags */
+function highlightTextInElement(element: HTMLElement, query: string) {
+  if (!query) return;
+
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+  const textNodes: Text[] = [];
+  let node: Text | null;
+
+  while ((node = walker.nextNode() as Text | null)) {
+    textNodes.push(node);
+  }
+
+  const lowerQuery = query.toLowerCase();
+
+  for (const textNode of textNodes) {
+    const text = textNode.textContent || "";
+    const lowerText = text.toLowerCase();
+    const matchIndex = lowerText.indexOf(lowerQuery);
+
+    if (matchIndex === -1) continue;
+
+    // Split the text node and wrap the match
+    const before = text.slice(0, matchIndex);
+    const match = text.slice(matchIndex, matchIndex + query.length);
+    const after = text.slice(matchIndex + query.length);
+
+    const parent = textNode.parentNode;
+    if (!parent) continue;
+
+    const fragment = document.createDocumentFragment();
+    if (before) fragment.appendChild(document.createTextNode(before));
+
+    const mark = document.createElement("mark");
+    mark.className = "bg-yellow-300 dark:bg-yellow-600 rounded px-0.5 search-highlight";
+    mark.textContent = match;
+    fragment.appendChild(mark);
+
+    if (after) fragment.appendChild(document.createTextNode(after));
+
+    parent.replaceChild(fragment, textNode);
+  }
+}
+
+/** Remove all search highlights from an element */
+function removeHighlightsFromElement(element: HTMLElement) {
+  const marks = element.querySelectorAll("mark.search-highlight");
+  marks.forEach((mark) => {
+    const parent = mark.parentNode;
+    if (parent) {
+      parent.replaceChild(document.createTextNode(mark.textContent || ""), mark);
+      parent.normalize(); // Merge adjacent text nodes
+    }
+  });
+}
+
 function AssistantBubble({
   content,
   reasoning,
   isAnimating,
+  highlightQuery,
 }: {
   content: string;
   reasoning?: string;
   isAnimating: boolean;
+  highlightQuery?: string | null;
 }) {
   const displayed = useAnimatedText(content, isAnimating);
   const isRevealing = displayed.length < content.length;
   const isThinking = isAnimating && !content && !!reasoning;
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Apply text highlighting after render
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+
+    // Remove existing highlights first
+    removeHighlightsFromElement(el);
+
+    // Apply new highlights if query exists
+    if (highlightQuery) {
+      highlightTextInElement(el, highlightQuery);
+    }
+  }, [highlightQuery, displayed]);
 
   return (
     <div>
       {reasoning && (
         <ReasoningBlock reasoning={reasoning} isAnimating={isThinking} />
       )}
-      <div className="prose dark:prose-invert max-w-none text-sm">
+      <div ref={contentRef} className="prose dark:prose-invert max-w-none text-sm">
         {displayed ? (
           <Streamdown
             plugins={plugins}
@@ -142,11 +250,13 @@ function EditableUserMessage({
   isLoading,
   onEdit,
   onResend,
+  searchHighlight,
 }: {
   message: Message;
   isLoading: boolean;
   onEdit: (id: string, content: string) => void;
   onResend: (id: string, content: string) => Promise<void>;
+  searchHighlight?: string | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
@@ -225,7 +335,7 @@ function EditableUserMessage({
         </div>
       )}
       <div className="rounded-2xl rounded-tr-sm bg-primary px-4 py-2 text-primary-foreground text-sm whitespace-pre-wrap">
-        {message.content}
+        <HighlightedText text={message.content} query={searchHighlight} />
       </div>
       <div className="flex gap-0.5">
         <Button
@@ -274,14 +384,38 @@ export const ChatMessage = memo(function ChatMessage({
   onEdit,
   onResend,
   onRegenerate,
+  searchHighlight,
+  onHighlightShown,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
+  const messageRef = useRef<HTMLDivElement>(null);
+  const [highlightQuery, setHighlightQuery] = useState<string | null>(null);
+
+  // Check if this message matches the search query
+  const hasMatch = searchHighlight
+    ? message.content.toLowerCase().includes(searchHighlight.toLowerCase())
+    : false;
+
+  // Scroll to first matching message and highlight it
+  useEffect(() => {
+    if (hasMatch && searchHighlight && messageRef.current) {
+      setHighlightQuery(searchHighlight);
+      messageRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      onHighlightShown?.();
+
+      // Remove highlight after animation
+      const timer = setTimeout(() => setHighlightQuery(null), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [hasMatch, searchHighlight, onHighlightShown]);
 
   return (
     <div
+      ref={messageRef}
       className={cn(
-        "px-4 py-4",
-        isUser && "flex justify-end"
+        "px-4 py-4 transition-colors duration-500",
+        isUser && "flex justify-end",
+        highlightQuery && "bg-yellow-100 dark:bg-yellow-900/30"
       )}
     >
       <div
@@ -296,10 +430,11 @@ export const ChatMessage = memo(function ChatMessage({
             isLoading={isLoading}
             onEdit={onEdit}
             onResend={onResend}
+            searchHighlight={highlightQuery}
           />
         ) : (
           <div className="group/msg">
-            <AssistantBubble content={message.content} reasoning={message.reasoning} isAnimating={isAnimating} />
+            <AssistantBubble content={message.content} reasoning={message.reasoning} isAnimating={isAnimating} highlightQuery={highlightQuery} />
             {!isAnimating && message.content && (
               <div className="mt-1 flex gap-0.5">
                 <Button

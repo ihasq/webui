@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { MarqueeText } from "@/components/ui/marquee-text";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -47,10 +48,10 @@ function NumberInput({
   const hasRange = min !== undefined && max !== undefined;
 
   return (
-    <div className="grid gap-2">
-      <div className="flex items-baseline justify-between">
-        <Label htmlFor={id}>{label}</Label>
-        <span className="text-xs text-muted-foreground">{hint}</span>
+    <div className="grid min-w-0 gap-2">
+      <div className="flex min-w-0 items-baseline justify-between gap-2">
+        <Label htmlFor={id} className="shrink-0">{label}</Label>
+        <span className="shrink-0 text-xs text-muted-foreground">{hint}</span>
       </div>
       <Input
         id={id}
@@ -66,19 +67,70 @@ function NumberInput({
         }}
       />
       {hasRange && (
-        <input
-          type="range"
-          min={min}
-          max={max}
-          step={step}
-          value={value ?? min}
-          onChange={(e) => onChange(Number(e.target.value))}
-          className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted outline-none
-            [&::-webkit-slider-thumb]:size-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-ring [&::-webkit-slider-thumb]:bg-white
-            [&::-moz-range-thumb]:size-3.5 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-ring [&::-moz-range-thumb]:bg-white
-            [&::-moz-range-progress]:h-1.5 [&::-moz-range-progress]:rounded-full [&::-moz-range-progress]:bg-primary"
-        />
+        <div className="px-2">
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={value ?? min}
+            onChange={(e) => onChange(Number(e.target.value))}
+            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted outline-none
+              [&::-webkit-slider-thumb]:size-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-ring [&::-webkit-slider-thumb]:bg-white
+              [&::-moz-range-thumb]:size-3.5 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-ring [&::-moz-range-thumb]:bg-white
+              [&::-moz-range-progress]:h-1.5 [&::-moz-range-progress]:rounded-full [&::-moz-range-progress]:bg-primary"
+          />
+        </div>
       )}
+    </div>
+  );
+}
+
+function ModelSelectWithMarquee({
+  value,
+  models,
+  onValueChange,
+}: {
+  value: string;
+  models: { id: string; name: string; cost?: { input: number; output: number } }[];
+  onValueChange: (value: string | null) => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const selectedModel = models.find((m) => m.id === value);
+  const displayText = selectedModel?.name || "Select a model...";
+
+  return (
+    <div className="grid min-w-0 gap-1.5">
+      <Label>Model</Label>
+      <Select value={value || undefined} onValueChange={onValueChange}>
+        <SelectTrigger
+          className="w-full min-w-0"
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+        >
+          <div className="relative min-w-0 flex-1 overflow-hidden text-left">
+            <MarqueeText
+              text={displayText}
+              hovering={hovered}
+              className={!selectedModel ? "text-muted-foreground" : ""}
+            />
+            {/* Gradient fade */}
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-input to-transparent dark:from-input/30" />
+          </div>
+        </SelectTrigger>
+        <SelectContent>
+          {models.map((m) => (
+            <SelectItem key={m.id} value={m.id}>
+              {m.name}
+              {m.cost && (
+                <span className="ml-1 text-xs text-muted-foreground">
+                  ${m.cost.input}/{m.cost.output}
+                </span>
+              )}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }
@@ -123,8 +175,8 @@ function ProviderModelSelector({
   }, [onChange, config]);
 
   return (
-    <fieldset className="grid gap-3">
-      <div className="flex items-center justify-between">
+    <fieldset className="grid min-w-0 gap-3">
+      <div className="flex min-w-0 items-center justify-between">
         <legend className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
           Model Registry
         </legend>
@@ -156,13 +208,13 @@ function ProviderModelSelector({
         }}
       />
 
-      <div className="grid gap-1.5">
+      <div className="grid min-w-0 gap-1.5">
         <Label>Provider</Label>
         <Select
           value={selectedProvider}
           onValueChange={handleProviderChange}
         >
-          <SelectTrigger className="w-full">
+          <SelectTrigger className="w-full min-w-0">
             <SelectValue placeholder="Select a provider..." />
           </SelectTrigger>
           <SelectContent>
@@ -176,29 +228,11 @@ function ProviderModelSelector({
       </div>
 
       {currentProvider && (
-        <div className="grid gap-1.5">
-          <Label>Model</Label>
-          <Select
-            value={config.model || undefined}
-            onValueChange={handleModelChange}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Select a model..." />
-            </SelectTrigger>
-            <SelectContent>
-              {currentProvider.models.map((m) => (
-                <SelectItem key={m.id} value={m.id}>
-                  {m.name}
-                  {m.cost && (
-                    <span className="ml-1 text-xs text-muted-foreground">
-                      ${m.cost.input}/{m.cost.output}
-                    </span>
-                  )}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <ModelSelectWithMarquee
+          value={config.model}
+          models={currentProvider.models}
+          onValueChange={handleModelChange}
+        />
       )}
     </fieldset>
   );
@@ -238,7 +272,7 @@ export function SettingsSidebar({
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed inset-y-0 right-0 z-40 flex w-72 flex-col border-l bg-sidebar text-sidebar-foreground transition-transform duration-200 md:relative md:transition-[margin]",
+          "fixed inset-y-0 right-0 z-40 flex w-72 shrink-0 flex-col border-l bg-sidebar text-sidebar-foreground transition-transform duration-200 md:relative md:transition-[margin]",
           isOpen
             ? "translate-x-0 md:mr-0"
             : "translate-x-full md:translate-x-0 md:-mr-72"
@@ -257,14 +291,14 @@ export function SettingsSidebar({
 
         {/* Content */}
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          <div className="grid gap-5">
+          <div className="grid min-w-0 gap-5">
             {/* Model Registry */}
             <ProviderModelSelector config={config} onChange={onChange} />
 
             <hr className="border-border" />
 
             {/* Connection (manual / override) */}
-            <fieldset className="grid gap-3">
+            <fieldset className="grid min-w-0 gap-3">
               <legend className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Connection
               </legend>
@@ -307,7 +341,7 @@ export function SettingsSidebar({
             <hr className="border-border" />
 
             {/* System Prompt */}
-            <fieldset className="grid gap-3">
+            <fieldset className="grid min-w-0 gap-3">
               <legend className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 System Prompt
               </legend>
@@ -326,7 +360,7 @@ export function SettingsSidebar({
             <hr className="border-border" />
 
             {/* Inference Parameters */}
-            <fieldset className="grid gap-3">
+            <fieldset className="grid min-w-0 gap-3">
               <legend className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Inference Parameters
               </legend>

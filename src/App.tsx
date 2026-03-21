@@ -146,6 +146,7 @@ export default function App() {
   );
   const [settingsSidebarOpen, setSettingsSidebarOpen] = useState(false);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
+  const [searchHighlight, setSearchHighlight] = useState<string | null>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null);
 
   const { updateAvailable, applyUpdate, dismissUpdate } = useUpdateChecker();
@@ -278,24 +279,33 @@ export default function App() {
     return hydrated;
   }, []);
 
-  // Select conversation: load its messages with attachment hydration and update URL hash
-  const handleSelect = useCallback(
-    async (id: string, updateHash = true) => {
-      selectConversation(id);
-      const conv = conversations.find((c) => c.id === id);
-      if (!conv) return;
-
-      // Update URL hash
-      if (updateHash) {
-        const hash = generateConversationHash(conv);
-        window.history.replaceState(null, "", `#${hash}`);
-      }
-
+  // Internal: load conversation messages without hash update
+  const loadConversation = useCallback(
+    async (conv: Conversation) => {
+      selectConversation(conv.id);
       const msgs = conv.messages ?? [];
       const hydrated = await hydrateAttachments(msgs);
       loadMessages(hydrated);
     },
-    [conversations, selectConversation, loadMessages, hydrateAttachments]
+    [selectConversation, loadMessages, hydrateAttachments]
+  );
+
+  // Select conversation: load its messages with attachment hydration and update URL hash
+  const handleSelect = useCallback(
+    async (id: string, searchQuery?: string) => {
+      const conv = conversations.find((c) => c.id === id);
+      if (!conv) return;
+
+      // Update URL hash
+      const hash = generateConversationHash(conv);
+      window.history.replaceState(null, "", `#${hash}`);
+
+      // Set search highlight for scrolling to match
+      setSearchHighlight(searchQuery ?? null);
+
+      await loadConversation(conv);
+    },
+    [conversations, loadConversation]
   );
 
   // Track if initial hash navigation has been done
@@ -310,7 +320,7 @@ export default function App() {
       const conv = findConversationByHash(conversations, hash);
       if (conv) {
         initialHashHandled.current = true;
-        handleSelect(conv.id, false);
+        loadConversation(conv);
       } else {
         // Hash doesn't match any conversation: clear hash
         initialHashHandled.current = true;
@@ -319,7 +329,7 @@ export default function App() {
     } else {
       initialHashHandled.current = true;
     }
-  }, [conversationsLoading, conversations, handleSelect]);
+  }, [conversationsLoading, conversations, loadConversation]);
 
   // Listen for hash changes while app is running
   useEffect(() => {
@@ -333,7 +343,7 @@ export default function App() {
 
       const conv = findConversationByHash(conversationsRef.current, hash);
       if (conv) {
-        await handleSelect(conv.id, false);
+        await loadConversation(conv);
       } else {
         // Hash doesn't match any conversation: clear hash
         window.history.replaceState(null, "", window.location.pathname);
@@ -344,7 +354,7 @@ export default function App() {
 
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
-  }, [handleSelect, newChat, clear]);
+  }, [loadConversation, newChat, clear]);
 
   // New chat: clear messages, deselect, and clear URL hash
   const handleNew = useCallback(() => {
@@ -352,6 +362,18 @@ export default function App() {
     clear();
     window.history.replaceState(null, "", window.location.pathname);
   }, [newChat, clear]);
+
+  // Keyboard shortcut: Ctrl+Shift+O for new chat
+  useEffect(() => {
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        handleNew();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleNew]);
 
   // Delete conversation: if active, also clear messages and hash
   const handleDelete = useCallback(
@@ -494,7 +516,7 @@ export default function App() {
       />
 
       {/* Main chat area */}
-      <div className="relative flex min-w-0 flex-1 flex-col">
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Messages */}
         <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto pb-32">
           <div className="mx-auto max-w-3xl">
@@ -516,6 +538,8 @@ export default function App() {
                   onEdit={editMessage}
                   onResend={handleResend}
                   onRegenerate={handleRegenerate}
+                  searchHighlight={searchHighlight}
+                  onHighlightShown={() => setSearchHighlight(null)}
                 />
               ))
             )}
