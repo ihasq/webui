@@ -60,12 +60,20 @@ function ReasoningBlock({
   isAnimating: boolean;
 }) {
   const [isExpanded, setIsExpanded] = useState(isAnimating);
+  const [wasAnimating, setWasAnimating] = useState(false);
   const displayed = useAnimatedText(reasoning, isAnimating);
 
-  // Auto-expand while animating, allow manual toggle after
+  // Auto-expand while animating, collapse when animation ends
   useEffect(() => {
-    if (isAnimating) setIsExpanded(true);
-  }, [isAnimating]);
+    if (isAnimating) {
+      setIsExpanded(true);
+      setWasAnimating(true);
+    } else if (wasAnimating) {
+      // Thinking finished, collapse the block
+      setIsExpanded(false);
+      setWasAnimating(false);
+    }
+  }, [isAnimating, wasAnimating]);
 
   return (
     <div className="mb-3 rounded-lg border bg-muted/50">

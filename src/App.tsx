@@ -516,7 +516,7 @@ export default function App() {
         {/* Floating input */}
         <div
           ref={inputContainerRef}
-          className="pointer-events-none fixed inset-x-0 p-4 transition-[bottom] duration-100"
+          className="input-container pointer-events-none inset-x-0 p-4"
           style={{ bottom: keyboardOffset }}
         >
           <div className="pointer-events-auto mx-auto max-w-3xl rounded-xl border bg-background/60 shadow-lg backdrop-blur-md">
@@ -530,7 +530,7 @@ export default function App() {
             )}
 
             {/* Input row */}
-            <div className="flex gap-2 p-2">
+            <div className="flex items-end gap-2 p-2">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -541,8 +541,9 @@ export default function App() {
               />
               <Button
                 variant="ghost"
+                size="icon"
                 onClick={() => fileInputRef.current?.click()}
-                className="aspect-square h-auto shrink-0 self-stretch"
+                className="shrink-0 self-start"
               >
                 <Plus className="size-4" />
               </Button>
@@ -559,16 +560,18 @@ export default function App() {
               {isLoading ? (
                 <Button
                   variant="destructive"
+                  size="icon"
                   onClick={stop}
-                  className="aspect-square h-auto shrink-0 self-stretch"
+                  className="shrink-0"
                 >
                   <Square className="size-4" />
                 </Button>
               ) : (
                 <Button
+                  size="icon"
                   onClick={handleSend}
                   disabled={!input.trim() && attachments.length === 0}
-                  className="aspect-square h-auto shrink-0 self-stretch"
+                  className="shrink-0"
                 >
                   <Send className="size-4" />
                 </Button>

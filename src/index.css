@@ -162,3 +162,16 @@
     opacity: 1;
   }
 }
+
+/* Input container: fixed on mobile, absolute on desktop */
+.input-container {
+  position: fixed;
+  transition: bottom 100ms;
+}
+
+@media (min-width: 768px) {
+  .input-container {
+    position: absolute;
+    bottom: 0 !important;
+  }
+}
