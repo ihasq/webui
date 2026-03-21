@@ -59,9 +59,9 @@ const swContent = swTemplate.replace(
 );
 
 // Update cache version based on build hash
-const cacheVersion = `chat-pwa-${buildHash}`;
+const cacheVersion = Date.now(); // Use timestamp for DB version
 const finalContent = swContent
-  .replace(/const CACHE_NAME = ".*?";/, `const CACHE_NAME = "${cacheVersion}";`)
+  .replace(/const CACHE_VERSION = \d+;/, `const CACHE_VERSION = ${cacheVersion};`)
   .replace(/const BUILD_ID = ".*?";/, `const BUILD_ID = "${buildId}";`);
 
 writeFileSync(join(distDir, "sw.js"), finalContent);
