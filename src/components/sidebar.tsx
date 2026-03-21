@@ -6,8 +6,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { SettingsDialog } from "@/components/settings-dialog";
-import type { ChatConfig } from "@/hooks/use-chat";
 import type { Conversation } from "@/hooks/use-conversations";
 import { cn } from "@/lib/utils";
 import {
@@ -18,7 +16,7 @@ import {
   Sun,
   MessageSquare,
   PanelLeftClose,
-  PanelLeft,
+  History,
   EllipsisVertical,
 } from "lucide-react";
 
@@ -29,8 +27,6 @@ interface SidebarProps {
   onNew: () => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
-  config: ChatConfig;
-  onConfigChange: (config: ChatConfig) => void;
   isDark: boolean;
   onToggleDark: () => void;
   isOpen: boolean;
@@ -41,19 +37,20 @@ interface SidebarProps {
 function MarqueeText({ text, hovering }: { text: string; hovering: boolean }) {
   const outerRef = useRef<HTMLSpanElement>(null);
   const innerRef = useRef<HTMLSpanElement>(null);
-  const [offset, setOffset] = useState(0);
   const rafRef = useRef(0);
 
   useEffect(() => {
+    const inner = innerRef.current;
+    if (!inner) return;
+
     if (!hovering) {
       cancelAnimationFrame(rafRef.current);
-      setOffset(0);
+      inner.style.transform = "translateX(0)";
       return;
     }
 
     const outer = outerRef.current;
-    const inner = innerRef.current;
-    if (!outer || !inner) return;
+    if (!outer) return;
     const distance = inner.scrollWidth - outer.clientWidth;
     if (distance <= 0) return;
 
@@ -64,7 +61,7 @@ function MarqueeText({ text, hovering }: { text: string; hovering: boolean }) {
     const tick = (now: number) => {
       const elapsed = now - startTime;
       const progress = Math.min(elapsed / duration, 1);
-      setOffset(-distance * progress);
+      inner.style.transform = `translateX(${-distance * progress}px)`;
       if (progress < 1) {
         rafRef.current = requestAnimationFrame(tick);
       }
@@ -79,7 +76,6 @@ function MarqueeText({ text, hovering }: { text: string; hovering: boolean }) {
       <span
         ref={innerRef}
         className="inline-block whitespace-nowrap transition-none"
-        style={{ transform: `translateX(${offset}px)` }}
       >
         {text}
       </span>
@@ -179,8 +175,6 @@ export function Sidebar({
   onNew,
   onDelete,
   onDuplicate,
-  config,
-  onConfigChange,
   isDark,
   onToggleDark,
   isOpen,
@@ -209,9 +203,9 @@ export function Sidebar({
           variant="ghost"
           size="icon"
           onClick={onToggleOpen}
-          className="fixed top-2 left-2 z-30"
+          className="fixed top-2 left-2 z-50"
         >
-          <PanelLeft className="size-4" />
+          <History className="size-4" />
         </Button>
       )}
 
@@ -277,7 +271,6 @@ export function Sidebar({
               <Moon className="size-4" />
             )}
           </Button>
-          <SettingsDialog config={config} onChange={onConfigChange} />
         </div>
       </aside>
     </>

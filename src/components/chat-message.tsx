@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useRef, useEffect } from "react";
+import { memo, useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
 import { Streamdown } from "streamdown";
 import { code } from "@streamdown/code";
 import { createMathPlugin } from "@streamdown/math";
@@ -60,20 +60,20 @@ function ReasoningBlock({
   isAnimating: boolean;
 }) {
   const [isExpanded, setIsExpanded] = useState(isAnimating);
-  const [wasAnimating, setWasAnimating] = useState(false);
+  const wasAnimatingRef = useRef(false);
   const displayed = useAnimatedText(reasoning, isAnimating);
 
   // Auto-expand while animating, collapse when animation ends
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (isAnimating) {
       setIsExpanded(true);
-      setWasAnimating(true);
-    } else if (wasAnimating) {
+      wasAnimatingRef.current = true;
+    } else if (wasAnimatingRef.current) {
       // Thinking finished, collapse the block
       setIsExpanded(false);
-      setWasAnimating(false);
+      wasAnimatingRef.current = false;
     }
-  }, [isAnimating, wasAnimating]);
+  }, [isAnimating]);
 
   return (
     <div className="mb-3 rounded-lg border bg-muted/50">

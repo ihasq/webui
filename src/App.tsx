@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Square, Plus, X } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
+import { SettingsSidebar } from "@/components/settings-sidebar";
+import { UpdatePrompt } from "@/components/update-prompt";
+import { useUpdateChecker } from "@/hooks/use-update-checker";
 
 /** Generate a URL hash for a conversation: first user prompt + UUID */
 function generateConversationHash(conv: Conversation): string {
@@ -141,8 +144,11 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     window.innerWidth >= 768
   );
+  const [settingsSidebarOpen, setSettingsSidebarOpen] = useState(false);
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const inputContainerRef = useRef<HTMLDivElement>(null);
+
+  const { updateAvailable, applyUpdate, dismissUpdate } = useUpdateChecker();
 
   const {
     conversations,
@@ -476,12 +482,15 @@ export default function App() {
         onNew={handleNew}
         onDelete={handleDelete}
         onDuplicate={handleDuplicate}
-        config={config}
-        onConfigChange={handleConfigChange}
         isDark={isDark}
         onToggleDark={() => setIsDark((d) => !d)}
         isOpen={sidebarOpen}
-        onToggleOpen={() => setSidebarOpen((o) => !o)}
+        onToggleOpen={() => {
+          setSidebarOpen((o) => !o);
+          if (window.innerWidth < 768) {
+            setSettingsSidebarOpen(false);
+          }
+        }}
       />
 
       {/* Main chat area */}
@@ -580,6 +589,23 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      <SettingsSidebar
+        config={config}
+        onChange={handleConfigChange}
+        isOpen={settingsSidebarOpen}
+        onToggleOpen={() => {
+          setSettingsSidebarOpen((o) => !o);
+          if (window.innerWidth < 768) {
+            setSidebarOpen(false);
+          }
+        }}
+      />
+
+      {updateAvailable && (
+        <UpdatePrompt onUpdate={applyUpdate} onDismiss={dismissUpdate} />
+      )}
+
       <Toaster position="top-center" theme={isDark ? "dark" : "light"} />
     </div>
   );

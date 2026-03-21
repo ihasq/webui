@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 
 export interface ModelInfo {
   id: string;
@@ -135,7 +135,7 @@ export function useModelsRegistry() {
     };
   }, []);
 
-  const refresh = () => {
+  const refresh = useCallback(() => {
     localStorage.removeItem(CACHE_KEY);
     setLoading(true);
     setError(null);
@@ -152,7 +152,7 @@ export function useModelsRegistry() {
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  };
+  }, []);
 
   const providerMap = useMemo(
     () => new Map(providers.map((p) => [p.id, p])),

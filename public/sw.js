@@ -1,4 +1,5 @@
 const CACHE_NAME = "chat-pwa-v1";
+const BUILD_ID = "dev";
 
 // Assets to cache for offline use
 const PRECACHE_ASSETS = [
@@ -30,6 +31,15 @@ self.addEventListener("activate", (event) => {
     })
   );
   self.clients.claim();
+});
+
+// Message handler for update-related commands
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "GET_BUILD_ID") {
+    event.ports[0].postMessage({ buildId: BUILD_ID });
+  } else if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 // Fetch event: cache-first for app assets, network-first for API requests

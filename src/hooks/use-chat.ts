@@ -171,6 +171,42 @@ export function useChat(
         const decoder = new TextDecoder();
         let buffer = "";
 
+        // Batch updates with requestAnimationFrame to reduce re-renders
+        let pendingContent = "";
+        let pendingReasoning = "";
+        let rafScheduled = false;
+
+        const flushUpdates = () => {
+          rafScheduled = false;
+          if (!pendingContent && !pendingReasoning) return;
+
+          const contentToAdd = pendingContent;
+          const reasoningToAdd = pendingReasoning;
+          pendingContent = "";
+          pendingReasoning = "";
+
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? {
+                    ...m,
+                    content: contentToAdd ? m.content + contentToAdd : m.content,
+                    reasoning: reasoningToAdd
+                      ? (m.reasoning ?? "") + reasoningToAdd
+                      : m.reasoning,
+                  }
+                : m
+            )
+          );
+        };
+
+        const scheduleFlush = () => {
+          if (!rafScheduled) {
+            rafScheduled = true;
+            requestAnimationFrame(flushUpdates);
+          }
+        };
+
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -208,27 +244,18 @@ export function useChat(
                   }
                 }
 
-                if (content || reasoning) {
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === assistantId
-                        ? {
-                            ...m,
-                            content: content ? m.content + content : m.content,
-                            reasoning: reasoning
-                              ? (m.reasoning ?? "") + reasoning
-                              : m.reasoning,
-                          }
-                        : m
-                    )
-                  );
-                }
+                if (content) pendingContent += content;
+                if (reasoning) pendingReasoning += reasoning;
+                if (content || reasoning) scheduleFlush();
               }
             } catch {
               // skip malformed JSON chunks
             }
           }
         }
+
+        // Final flush for any remaining content
+        flushUpdates();
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
           // user cancelled

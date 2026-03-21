@@ -70,19 +70,20 @@ export function ModelSearch({ providers, onSelect }: ModelSearchProps) {
   );
 
   // Close on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-        setSelectedGroup(null);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+  const handleOutsideClick = useCallback((e: MouseEvent) => {
+    if (
+      containerRef.current &&
+      !containerRef.current.contains(e.target as Node)
+    ) {
+      setOpen(false);
+      setSelectedGroup(null);
+    }
   }, []);
+
+  useEffect(() => {
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [handleOutsideClick]);
 
   const handleSelectModel = useCallback(
     (group: ModelGroup) => {

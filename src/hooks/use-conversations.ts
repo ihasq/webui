@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { get, set } from "idb-keyval";
 import type { Message } from "./use-chat";
 import { deleteAttachments } from "./use-attachment-store";
@@ -66,7 +66,10 @@ export function useConversations() {
     });
   }, []);
 
-  const active = conversations.find((c) => c.id === activeId) ?? null;
+  const active = useMemo(
+    () => conversations.find((c) => c.id === activeId) ?? null,
+    [conversations, activeId]
+  );
 
   const persist = useCallback((next: Conversation[]) => {
     setConversations(next);
