@@ -133,6 +133,9 @@
   html, body {
     @apply overflow-hidden h-full;
     margin: 0;
+    position: fixed;
+    width: 100%;
+    overscroll-behavior: none;
   }
   body {
     @apply bg-background text-foreground;

@@ -193,21 +193,25 @@ export default function App() {
     const viewport = window.visualViewport;
     if (!viewport) return;
 
-    const handleResize = () => {
-      const offsetFromBottom = window.innerHeight - viewport.height - viewport.offsetTop;
-      setKeyboardOffset(Math.max(0, offsetFromBottom));
-      // Prevent PWA from scrolling when keyboard appears
-      if (viewport.offsetTop > 0) {
+    const handleViewportChange = () => {
+      // Calculate keyboard height
+      const keyboardHeight = window.innerHeight - viewport.height;
+      setKeyboardOffset(Math.max(0, keyboardHeight));
+
+      // Force scroll position to top to prevent PWA auto-scroll
+      requestAnimationFrame(() => {
         window.scrollTo(0, 0);
-      }
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+      });
     };
 
-    viewport.addEventListener("resize", handleResize);
-    viewport.addEventListener("scroll", handleResize);
+    viewport.addEventListener("resize", handleViewportChange);
+    viewport.addEventListener("scroll", handleViewportChange);
 
     return () => {
-      viewport.removeEventListener("resize", handleResize);
-      viewport.removeEventListener("scroll", handleResize);
+      viewport.removeEventListener("resize", handleViewportChange);
+      viewport.removeEventListener("scroll", handleViewportChange);
     };
   }, []);
 
@@ -470,7 +474,7 @@ export default function App() {
         {/* Floating input */}
         <div
           ref={inputContainerRef}
-          className="pointer-events-none absolute inset-x-0 bottom-0 p-4 transition-[bottom] duration-100"
+          className="pointer-events-none fixed inset-x-0 p-4 transition-[bottom] duration-100"
           style={{ bottom: keyboardOffset }}
         >
           <div className="pointer-events-auto mx-auto max-w-3xl rounded-xl border bg-background/60 shadow-lg backdrop-blur-md">
