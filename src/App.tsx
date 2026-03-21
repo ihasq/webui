@@ -178,6 +178,8 @@ export default function App() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const shouldAutoScrollRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
+  const lastScrollHeightRef = useRef(0);
 
   const handleConfigChange = useCallback((newConfig: ChatConfig) => {
     setConfig(newConfig);
@@ -227,9 +229,31 @@ export default function App() {
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const threshold = 50; // pixels from bottom to consider "at bottom"
-    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-    shouldAutoScrollRef.current = isAtBottom;
+
+    const currentScrollTop = el.scrollTop;
+    const currentScrollHeight = el.scrollHeight;
+    const lastScrollTop = lastScrollTopRef.current;
+    const lastScrollHeight = lastScrollHeightRef.current;
+
+    // Detect if this scroll was caused by user scrolling up (not layout change)
+    const scrollHeightChanged = currentScrollHeight !== lastScrollHeight;
+    const userScrolledUp = currentScrollTop < lastScrollTop && !scrollHeightChanged;
+
+    // If user intentionally scrolled up, disable auto-scroll
+    if (userScrolledUp) {
+      shouldAutoScrollRef.current = false;
+    }
+
+    // Check if user scrolled back to bottom
+    const threshold = 50;
+    const isAtBottom = currentScrollHeight - currentScrollTop - el.clientHeight < threshold;
+    if (isAtBottom) {
+      shouldAutoScrollRef.current = true;
+    }
+
+    // Update refs for next comparison
+    lastScrollTopRef.current = currentScrollTop;
+    lastScrollHeightRef.current = currentScrollHeight;
   }, []);
 
   // Restore attachment data from IndexedDB for messages that have stripped attachments
