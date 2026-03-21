@@ -196,6 +196,10 @@ export default function App() {
     const handleResize = () => {
       const offsetFromBottom = window.innerHeight - viewport.height - viewport.offsetTop;
       setKeyboardOffset(Math.max(0, offsetFromBottom));
+      // Prevent PWA from scrolling when keyboard appears
+      if (viewport.offsetTop > 0) {
+        window.scrollTo(0, 0);
+      }
     };
 
     viewport.addEventListener("resize", handleResize);
