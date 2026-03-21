@@ -420,7 +420,12 @@ export default function App() {
 
     setInput("");
     setAttachments([]);
-    textareaRef.current?.focus();
+    // On mobile, blur to dismiss keyboard; on desktop, keep focus
+    if (window.innerWidth < 768) {
+      textareaRef.current?.blur();
+    } else {
+      textareaRef.current?.focus();
+    }
   }, [input, attachments, isLoading, createConversation, chatSend]);
 
   const handleKeyDown = useCallback(
