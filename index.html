@@ -2,20 +2,98 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/icon-192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
-    <title>Chat</title>
+
+    <!-- Primary Meta Tags -->
+    <title>Chat - AI Chat Interface for Local & Cloud LLMs</title>
+    <meta name="title" content="Chat - AI Chat Interface for Local & Cloud LLMs" />
+    <meta name="description" content="A fast, privacy-focused AI chat interface. Connect to local LLMs like Ollama or cloud providers like OpenAI, Anthropic, and more. Works offline as a PWA." />
+    <meta name="keywords" content="AI chat, LLM, ChatGPT alternative, Ollama, local AI, OpenAI, Anthropic, Claude, GPT-4, privacy, offline, PWA" />
+    <meta name="author" content="ihasq" />
+    <meta name="robots" content="index, follow" />
+    <meta name="language" content="English" />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Chat - AI Chat Interface for Local & Cloud LLMs" />
+    <meta property="og:description" content="A fast, privacy-focused AI chat interface. Connect to local LLMs like Ollama or cloud providers like OpenAI, Anthropic, and more." />
+    <meta property="og:image" content="/og-image.svg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:site_name" content="Chat" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Chat - AI Chat Interface for Local & Cloud LLMs" />
+    <meta name="twitter:description" content="A fast, privacy-focused AI chat interface. Connect to local LLMs like Ollama or cloud providers like OpenAI, Anthropic, and more." />
+    <meta name="twitter:image" content="/og-image.svg" />
+
     <!-- PWA -->
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#020304" />
-    <meta name="description" content="Chat application with local LLM support" />
+    <meta name="theme-color" content="#020304" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
     <!-- iOS PWA support -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Chat" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icon-192.png" />
+
+    <!-- Microsoft Tiles -->
+    <meta name="msapplication-TileColor" content="#020304" />
+    <meta name="msapplication-TileImage" content="/icon-192.png" />
+
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "Chat",
+      "description": "A fast, privacy-focused AI chat interface. Connect to local LLMs like Ollama or cloud providers like OpenAI, Anthropic, and more.",
+      "applicationCategory": "UtilitiesApplication",
+      "operatingSystem": "Any",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "featureList": [
+        "Local LLM support (Ollama)",
+        "Cloud provider integration (OpenAI, Anthropic, Google)",
+        "Offline support (PWA)",
+        "Privacy-focused",
+        "Conversation history",
+        "Dark mode",
+        "Mobile-friendly"
+      ],
+      "screenshot": "/og-image.svg",
+      "softwareVersion": "1.0.0",
+      "author": {
+        "@type": "Person",
+        "name": "ihasq"
+      }
+    }
+    </script>
+
+    <!-- Preconnect to common LLM API endpoints -->
+    <link rel="preconnect" href="https://api.openai.com" />
+    <link rel="preconnect" href="https://api.anthropic.com" />
+    <link rel="dns-prefetch" href="https://openrouter.ai" />
   </head>
   <body>
+    <noscript>
+      <div style="padding: 2rem; text-align: center; font-family: system-ui, sans-serif;">
+        <h1>Chat - AI Chat Interface</h1>
+        <p>This application requires JavaScript to run. Please enable JavaScript in your browser settings.</p>
+      </div>
+    </noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
