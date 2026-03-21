@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 
+const MAX_BUFFER = 20; // Maximum characters of delay
+const BASE_CHARS_PER_SECOND = 60; // Base typing speed
+const FLUSH_CHARS_PER_SECOND = 200; // Speed when flushing after stream ends
+
 /**
- * Smoothly reveals text character-by-character using an exponential
- * ease-out approach. Automatically adapts speed to the incoming rate:
- *   - Small buffer → 1 char/frame (typing feel)
- *   - Large buffer → accelerates to keep latency low
- *   - Streaming ends → flushes remaining content quickly
+ * Smoothly reveals text character-by-character with a natural typing feel.
+ * - Maintains a maximum buffer of 20 characters delay
+ * - Accelerates smoothly when buffer grows
+ * - Flushes quickly when streaming ends
  */
 export function useAnimatedText(
   content: string,
@@ -19,6 +22,7 @@ export function useAnimatedText(
   const lenRef = useRef(displayedLen);
   const contentRef = useRef(content);
   const isStreamingRef = useRef(isStreaming);
+  const accumulatorRef = useRef(0); // Sub-character accumulator for smooth animation
 
   // Keep refs in sync (no extra renders)
   contentRef.current = content;
@@ -47,19 +51,39 @@ export function useAnimatedText(
       const remaining = target - lenRef.current;
 
       if (remaining > 0) {
-        // Exponential ease-out: close a fraction of the gap each frame.
-        // speed 10 → ~15 % per frame @60 fps  → low latency, smooth feel
-        // speed 24 → ~32 % per frame @60 fps  → fast flush after stream ends
-        const speed = isStreamingRef.current ? 10 : 24;
-        const fraction = 1 - Math.exp(-speed * dt);
-        const advance = Math.max(1, Math.ceil(remaining * fraction));
+        // Calculate speed based on buffer size and streaming state
+        let charsPerSecond: number;
 
-        lenRef.current = Math.min(target, lenRef.current + advance);
-        setDisplayedLen(lenRef.current);
+        if (!isStreamingRef.current) {
+          // Streaming ended - flush remaining content quickly
+          charsPerSecond = FLUSH_CHARS_PER_SECOND;
+        } else if (remaining > MAX_BUFFER) {
+          // Buffer exceeded - accelerate to catch up smoothly
+          // Use exponential scaling for smooth acceleration
+          const excess = remaining - MAX_BUFFER;
+          charsPerSecond = BASE_CHARS_PER_SECOND + excess * 10;
+        } else {
+          // Normal streaming - smooth constant rate with slight acceleration
+          // as buffer grows to prevent it from exceeding MAX_BUFFER
+          const bufferRatio = remaining / MAX_BUFFER;
+          charsPerSecond = BASE_CHARS_PER_SECOND * (1 + bufferRatio);
+        }
+
+        // Accumulate fractional characters for sub-frame smoothness
+        accumulatorRef.current += charsPerSecond * dt;
+
+        // Only advance when we have at least 1 full character
+        if (accumulatorRef.current >= 1) {
+          const advance = Math.min(Math.floor(accumulatorRef.current), remaining);
+          accumulatorRef.current -= advance;
+          lenRef.current = lenRef.current + advance;
+          setDisplayedLen(lenRef.current);
+        }
 
         raf = requestAnimationFrame(tick);
       } else if (isStreamingRef.current) {
         // Caught up but still streaming — wait for more tokens
+        accumulatorRef.current = 0; // Reset accumulator when caught up
         raf = requestAnimationFrame(tick);
       }
       // else: streaming done & fully caught up → stop loop
@@ -69,7 +93,6 @@ export function useAnimatedText(
     return () => {
       cancelAnimationFrame(raf);
     };
-    // Effect runs once per component mount; refs handle value changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

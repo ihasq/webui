@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { saveAttachments } from "./use-attachment-store";
+import { toast } from "sonner";
 
 export interface Attachment {
   name: string;
@@ -189,7 +190,24 @@ export function useChat(
               const delta = parsed.choices?.[0]?.delta;
               if (delta) {
                 const content = delta.content;
-                const reasoning = delta.reasoning_content;
+                // Support multiple reasoning formats:
+                // - reasoning_content (DeepSeek, some providers)
+                // - reasoning_details (OpenRouter)
+                // - reasoning (generic)
+                let reasoning = delta.reasoning_content ?? delta.reasoning;
+
+                // OpenRouter returns reasoning_details as an array
+                if (delta.reasoning_details) {
+                  const details = delta.reasoning_details;
+                  if (Array.isArray(details)) {
+                    reasoning = details
+                      .map((d: { content?: string; text?: string }) => d.content ?? d.text ?? "")
+                      .join("");
+                  } else if (typeof details === "string") {
+                    reasoning = details;
+                  }
+                }
+
                 if (content || reasoning) {
                   setMessages((prev) =>
                     prev.map((m) =>
@@ -217,6 +235,11 @@ export function useChat(
         } else {
           const errorMsg =
             err instanceof Error ? err.message : "Unknown error";
+          // Show error toast
+          toast.error("Request failed", {
+            description: errorMsg,
+          });
+          // Also update message content to show error
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
