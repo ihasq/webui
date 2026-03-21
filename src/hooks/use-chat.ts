@@ -11,6 +11,7 @@ export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  reasoning?: string;
   attachments?: Attachment[];
 }
 
@@ -185,15 +186,25 @@ export function useChat(
 
             try {
               const parsed = JSON.parse(data);
-              const delta = parsed.choices?.[0]?.delta?.content;
+              const delta = parsed.choices?.[0]?.delta;
               if (delta) {
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantId
-                      ? { ...m, content: m.content + delta }
-                      : m
-                  )
-                );
+                const content = delta.content;
+                const reasoning = delta.reasoning_content;
+                if (content || reasoning) {
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantId
+                        ? {
+                            ...m,
+                            content: content ? m.content + content : m.content,
+                            reasoning: reasoning
+                              ? (m.reasoning ?? "") + reasoning
+                              : m.reasoning,
+                          }
+                        : m
+                    )
+                  );
+                }
               }
             } catch {
               // skip malformed JSON chunks

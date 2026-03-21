@@ -10,7 +10,7 @@ import { useAnimatedText } from "@/hooks/use-animated-text";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { Pencil, RotateCcw, Copy } from "lucide-react";
+import { Pencil, RotateCcw, Copy, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 
 const math = createMathPlugin({ singleDollarTextMath: true });
@@ -52,41 +52,79 @@ interface ChatMessageProps {
   onRegenerate: (id: string) => Promise<void>;
 }
 
+function ReasoningBlock({
+  reasoning,
+  isAnimating,
+}: {
+  reasoning: string;
+  isAnimating: boolean;
+}) {
+  const [isExpanded, setIsExpanded] = useState(isAnimating);
+  const displayed = useAnimatedText(reasoning, isAnimating);
+
+  // Auto-expand while animating, allow manual toggle after
+  useEffect(() => {
+    if (isAnimating) setIsExpanded(true);
+  }, [isAnimating]);
+
+  return (
+    <div className="mb-3 rounded-lg border bg-muted/50">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-muted-foreground hover:text-foreground"
+      >
+        {isExpanded ? (
+          <ChevronDown className="size-4" />
+        ) : (
+          <ChevronRight className="size-4" />
+        )}
+        <span>Thinking{isAnimating ? "..." : ""}</span>
+      </button>
+      {isExpanded && (
+        <div className="px-3 pb-3">
+          <div className="prose dark:prose-invert max-w-none text-sm text-muted-foreground">
+            <Streamdown plugins={plugins} isAnimating={isAnimating}>
+              {convertMathDelimiters(displayed)}
+            </Streamdown>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AssistantBubble({
   content,
+  reasoning,
   isAnimating,
 }: {
   content: string;
+  reasoning?: string;
   isAnimating: boolean;
 }) {
-  const { displayed, stableEnd } = useAnimatedText(content, isAnimating);
+  const displayed = useAnimatedText(content, isAnimating);
   const isRevealing = displayed.length < content.length;
-
-  // Split text into stable part and fading part
-  const stableText = displayed.slice(0, stableEnd);
-  const fadingText = displayed.slice(stableEnd);
+  const isThinking = isAnimating && !content && !!reasoning;
 
   return (
-    <div className="prose dark:prose-invert max-w-none text-sm">
-      {displayed ? (
-        <>
-          {stableText && (
-            <Streamdown
-              plugins={plugins}
-              isAnimating={isAnimating || isRevealing}
-            >
-              {convertMathDelimiters(stableText)}
-            </Streamdown>
-          )}
-          {fadingText && (
-            <span className="text-fade-in">{fadingText}</span>
-          )}
-        </>
-      ) : isAnimating ? (
-        <div className="flex items-center gap-1 text-muted-foreground">
-          <span className="animate-pulse">Thinking...</span>
-        </div>
-      ) : null}
+    <div>
+      {reasoning && (
+        <ReasoningBlock reasoning={reasoning} isAnimating={isThinking} />
+      )}
+      <div className="prose dark:prose-invert max-w-none text-sm">
+        {displayed ? (
+          <Streamdown
+            plugins={plugins}
+            isAnimating={isAnimating || isRevealing}
+          >
+            {convertMathDelimiters(displayed)}
+          </Streamdown>
+        ) : isAnimating && !reasoning ? (
+          <div className="flex items-center gap-1 text-muted-foreground">
+            <span className="animate-pulse">Thinking...</span>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -253,7 +291,7 @@ export const ChatMessage = memo(function ChatMessage({
           />
         ) : (
           <div className="group/msg">
-            <AssistantBubble content={message.content} isAnimating={isAnimating} />
+            <AssistantBubble content={message.content} reasoning={message.reasoning} isAnimating={isAnimating} />
             {!isAnimating && message.content && (
               <div className="mt-1 flex gap-0.5">
                 <Button
