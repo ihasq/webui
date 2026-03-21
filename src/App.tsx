@@ -458,7 +458,7 @@ export default function App() {
       {/* Main chat area */}
       <div className="relative flex min-w-0 flex-1 flex-col">
         {/* Messages */}
-        <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto pb-24">
+        <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto pb-32">
           <div className="mx-auto max-w-3xl">
             {messages.length === 0 ? (
               <div className="flex h-[60vh] items-center justify-center text-muted-foreground">

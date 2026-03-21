@@ -59,18 +59,29 @@ function AssistantBubble({
   content: string;
   isAnimating: boolean;
 }) {
-  const displayed = useAnimatedText(content, isAnimating);
+  const { displayed, stableEnd } = useAnimatedText(content, isAnimating);
   const isRevealing = displayed.length < content.length;
+
+  // Split text into stable part and fading part
+  const stableText = displayed.slice(0, stableEnd);
+  const fadingText = displayed.slice(stableEnd);
 
   return (
     <div className="prose dark:prose-invert max-w-none text-sm">
       {displayed ? (
-        <Streamdown
-          plugins={plugins}
-          isAnimating={isAnimating || isRevealing}
-        >
-          {convertMathDelimiters(displayed)}
-        </Streamdown>
+        <>
+          {stableText && (
+            <Streamdown
+              plugins={plugins}
+              isAnimating={isAnimating || isRevealing}
+            >
+              {convertMathDelimiters(stableText)}
+            </Streamdown>
+          )}
+          {fadingText && (
+            <span className="text-fade-in">{fadingText}</span>
+          )}
+        </>
       ) : isAnimating ? (
         <div className="flex items-center gap-1 text-muted-foreground">
           <span className="animate-pulse">Thinking...</span>
