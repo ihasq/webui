@@ -141,3 +141,21 @@
     @apply font-sans;
   }
 }
+
+/* Mobile: always visible, Desktop: hidden until hover */
+.mobile-visible {
+  opacity: 1;
+  transition: opacity 150ms;
+}
+
+@media (min-width: 768px) {
+  .mobile-visible {
+    opacity: 0;
+  }
+  .group:hover .mobile-visible {
+    opacity: 1;
+  }
+  .group\/msg:hover .mobile-visible {
+    opacity: 1;
+  }
+}

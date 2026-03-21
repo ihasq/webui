@@ -7,6 +7,7 @@ import { Sidebar } from "@/components/sidebar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Square, Plus, X } from "lucide-react";
+import { Toaster } from "@/components/ui/sonner";
 
 /** Generate a URL hash for a conversation: first user prompt + UUID */
 function generateConversationHash(conv: Conversation): string {
@@ -140,6 +141,8 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     window.innerWidth >= 768
   );
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
+  const inputContainerRef = useRef<HTMLDivElement>(null);
 
   const {
     conversations,
@@ -174,6 +177,7 @@ export default function App() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const shouldAutoScrollRef = useRef(true);
 
   const handleConfigChange = useCallback((newConfig: ChatConfig) => {
     setConfig(newConfig);
@@ -184,10 +188,41 @@ export default function App() {
     document.documentElement.classList.toggle("dark", isDark);
   }, [isDark]);
 
+  // Handle mobile keyboard visibility
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+
+    const handleResize = () => {
+      const offsetFromBottom = window.innerHeight - viewport.height - viewport.offsetTop;
+      setKeyboardOffset(Math.max(0, offsetFromBottom));
+    };
+
+    viewport.addEventListener("resize", handleResize);
+    viewport.addEventListener("scroll", handleResize);
+
+    return () => {
+      viewport.removeEventListener("resize", handleResize);
+      viewport.removeEventListener("scroll", handleResize);
+    };
+  }, []);
+
+  // Auto-scroll to bottom when messages change, if user is at bottom
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && shouldAutoScrollRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [messages]);
+
+  // Track scroll position to determine if user is at bottom
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const threshold = 50; // pixels from bottom to consider "at bottom"
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    shouldAutoScrollRef.current = isAtBottom;
+  }, []);
 
   // Restore attachment data from IndexedDB for messages that have stripped attachments
   const hydrateAttachments = useCallback(async (msgs: Message[]): Promise<Message[]> => {
@@ -340,6 +375,9 @@ export default function App() {
       activeIdRef.current = convId;
     }
 
+    // Enable auto-scroll when sending a new message
+    shouldAutoScrollRef.current = true;
+
     chatSend(input, attachments.length > 0 ? attachments : undefined);
 
     // Update URL hash (for new conversations, this is the first user message)
@@ -363,6 +401,22 @@ export default function App() {
     [handleSend]
   );
 
+  const handleResend = useCallback(
+    async (messageId: string, content: string) => {
+      shouldAutoScrollRef.current = true;
+      await resend(messageId, content);
+    },
+    [resend]
+  );
+
+  const handleRegenerate = useCallback(
+    async (messageId: string) => {
+      shouldAutoScrollRef.current = true;
+      await regenerate(messageId);
+    },
+    [regenerate]
+  );
+
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
       <Sidebar
@@ -383,7 +437,7 @@ export default function App() {
       {/* Main chat area */}
       <div className="relative flex min-w-0 flex-1 flex-col">
         {/* Messages */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto pb-24">
+        <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto pb-24">
           <div className="mx-auto max-w-3xl">
             {messages.length === 0 ? (
               <div className="flex h-[60vh] items-center justify-center text-muted-foreground">
@@ -401,8 +455,8 @@ export default function App() {
                   }
                   isLoading={isLoading}
                   onEdit={editMessage}
-                  onResend={resend}
-                  onRegenerate={regenerate}
+                  onResend={handleResend}
+                  onRegenerate={handleRegenerate}
                 />
               ))
             )}
@@ -410,7 +464,11 @@ export default function App() {
         </div>
 
         {/* Floating input */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 p-4">
+        <div
+          ref={inputContainerRef}
+          className="pointer-events-none absolute inset-x-0 bottom-0 p-4 transition-[bottom] duration-100"
+          style={{ bottom: keyboardOffset }}
+        >
           <div className="pointer-events-auto mx-auto max-w-3xl rounded-xl border bg-background/60 shadow-lg backdrop-blur-md">
             {/* Attachment previews (drag to reorder) */}
             {attachments.length > 0 && (
@@ -443,7 +501,7 @@ export default function App() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Type a message... (Shift+Enter for new line)"
+                placeholder="Type prompt..."
                 className="min-h-10 max-h-40 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:border-0"
                 rows={1}
               />
@@ -468,6 +526,7 @@ export default function App() {
           </div>
         </div>
       </div>
+      <Toaster position="top-center" theme={isDark ? "dark" : "light"} />
     </div>
   );
 }

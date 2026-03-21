@@ -124,9 +124,19 @@ function ConversationItem({
       </button>
 
       {/* Absolutely positioned: gradient fade + menu trigger */}
-      <div className="absolute inset-y-0 right-0 flex items-center opacity-0 transition-opacity group-hover:opacity-100">
-        <div className="h-full w-6 bg-gradient-to-l from-sidebar-accent to-transparent" />
-        <div className="flex items-center bg-sidebar-accent pr-1">
+      <div className="mobile-visible absolute inset-y-0 right-0 flex items-center">
+        <div
+          className={cn(
+            "h-full w-6 bg-gradient-to-l to-transparent",
+            isActive ? "from-sidebar-accent" : "from-sidebar"
+          )}
+        />
+        <div
+          className={cn(
+            "flex items-center pr-1",
+            isActive ? "bg-sidebar-accent" : "bg-sidebar"
+          )}
+        >
           <DropdownMenu>
             <DropdownMenuTrigger
               render={<Button variant="ghost" size="icon-xs" />}
@@ -176,6 +186,22 @@ export function Sidebar({
   isOpen,
   onToggleOpen,
 }: SidebarProps) {
+  const closeSidebarOnMobile = () => {
+    if (window.innerWidth < 768) {
+      onToggleOpen();
+    }
+  };
+
+  const handleNew = () => {
+    onNew();
+    closeSidebarOnMobile();
+  };
+
+  const handleSelect = (id: string) => {
+    onSelect(id);
+    closeSidebarOnMobile();
+  };
+
   return (
     <>
       {!isOpen && (
@@ -198,9 +224,9 @@ export function Sidebar({
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r bg-sidebar text-sidebar-foreground transition-[transform,margin] duration-200 md:relative",
+          "fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r bg-sidebar text-sidebar-foreground transition-transform duration-200 md:relative md:transition-[margin]",
           isOpen
-            ? "translate-x-0"
+            ? "translate-x-0 md:ml-0"
             : "-translate-x-full md:translate-x-0 md:-ml-64"
         )}
       >
@@ -210,7 +236,7 @@ export function Sidebar({
             variant="ghost"
             size="sm"
             className="flex-1 justify-start gap-2"
-            onClick={onNew}
+            onClick={handleNew}
           >
             <Plus className="size-4" />
             New chat
@@ -233,7 +259,7 @@ export function Sidebar({
                   key={conv.id}
                   conv={conv}
                   isActive={activeId === conv.id}
-                  onSelect={() => onSelect(conv.id)}
+                  onSelect={() => handleSelect(conv.id)}
                   onDelete={() => onDelete(conv.id)}
                   onDuplicate={() => onDuplicate(conv.id)}
                 />

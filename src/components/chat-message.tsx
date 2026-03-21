@@ -10,7 +10,8 @@ import { useAnimatedText } from "@/hooks/use-animated-text";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { Pencil, RotateCcw } from "lucide-react";
+import { Pencil, RotateCcw, Copy } from "lucide-react";
+import { toast } from "sonner";
 
 const math = createMathPlugin({ singleDollarTextMath: true });
 
@@ -169,15 +170,42 @@ function EditableUserMessage({
       <div className="rounded-2xl rounded-tr-sm bg-primary px-4 py-2 text-primary-foreground text-sm whitespace-pre-wrap">
         {message.content}
       </div>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        className="opacity-0 transition-opacity group-hover/msg:opacity-100"
-        onClick={startEdit}
-        disabled={isLoading}
-      >
-        <Pencil className="size-3" />
-      </Button>
+      <div className="flex gap-0.5">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="mobile-visible"
+          onClick={() => {
+            navigator.clipboard.writeText(message.content);
+            toast("Copied", {
+              action: {
+                label: "OK",
+                onClick: () => {},
+              },
+            });
+          }}
+        >
+          <Copy className="size-3" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="mobile-visible"
+          onClick={startEdit}
+          disabled={isLoading}
+        >
+          <Pencil className="size-3" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="mobile-visible"
+          onClick={() => onResend(message.id, message.content)}
+          disabled={isLoading}
+        >
+          <RotateCcw className="size-3" />
+        </Button>
+      </div>
     </div>
   );
 }
@@ -201,8 +229,8 @@ export const ChatMessage = memo(function ChatMessage({
     >
       <div
         className={cn(
-          "min-w-0 max-w-[85%]",
-          isUser && "flex flex-col items-end"
+          "min-w-0",
+          isUser && "max-w-[85%] flex flex-col items-end"
         )}
       >
         {isUser ? (
@@ -216,15 +244,33 @@ export const ChatMessage = memo(function ChatMessage({
           <div className="group/msg">
             <AssistantBubble content={message.content} isAnimating={isAnimating} />
             {!isAnimating && message.content && (
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="mt-1 opacity-0 transition-opacity group-hover/msg:opacity-100"
-                onClick={() => onRegenerate(message.id)}
-                disabled={isLoading}
-              >
-                <RotateCcw className="size-3" />
-              </Button>
+              <div className="mt-1 flex gap-0.5">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="mobile-visible"
+                  onClick={() => onRegenerate(message.id)}
+                  disabled={isLoading}
+                >
+                  <RotateCcw className="size-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="mobile-visible"
+                  onClick={() => {
+            navigator.clipboard.writeText(message.content);
+            toast("Copied", {
+              action: {
+                label: "OK",
+                onClick: () => {},
+              },
+            });
+          }}
+                >
+                  <Copy className="size-3" />
+                </Button>
+              </div>
             )}
           </div>
         )}
