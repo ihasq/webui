@@ -10,6 +10,7 @@ import { SettingsSidebar } from "@/components/settings-sidebar";
 import { UpdatePrompt } from "@/components/update-prompt";
 import { useUpdateChecker } from "@/hooks/use-update-checker";
 import { ChatInput } from "@/components/chat-input";
+import { compressHtml } from "@/lib/html-compression";
 
 /** Generate a URL hash for a conversation: first user prompt + UUID */
 function generateConversationHash(conv: Conversation): string {
@@ -266,36 +267,42 @@ export default function App() {
     lastScrollHeightRef.current = currentScrollHeight;
   }, []);
 
-  // Restore attachment data from IndexedDB for messages that have stripped attachments
-  const hydrateAttachments = useCallback(async (msgs: Message[]): Promise<Message[]> => {
-    const hydrated = await Promise.all(
-      msgs.map(async (m) => {
-        if (!m.attachments?.length) return m;
-        // If dataUrl is empty, restore from IndexedDB
-        if (m.attachments.some((a) => !a.dataUrl)) {
-          const stored = await loadAttachments(m.id);
-          if (stored.length) return { ...m, attachments: stored };
-        }
-        return m;
-      })
-    );
-    return hydrated;
-  }, []);
-
   // Internal: load conversation messages without hash update
   const loadConversation = useCallback(
-    async (conv: Conversation) => {
+    (conv: Conversation) => {
       selectConversation(conv.id);
       const msgs = conv.messages ?? [];
-      const hydrated = await hydrateAttachments(msgs);
-      loadMessages(hydrated);
+      loadMessages(msgs);
+
+      // Hydrate attachments in the background
+      const messagesWithAttachments = msgs.filter(
+        (m) => m.attachments?.length && m.attachments.some((a) => !a.dataUrl)
+      );
+
+      if (messagesWithAttachments.length > 0) {
+        const hydrateInBackground = async () => {
+          for (const m of messagesWithAttachments) {
+            const stored = await loadAttachments(m.id);
+            if (stored.length) {
+              loadMessages((prev: Message[]) =>
+                prev.map((msg) =>
+                  msg.id === m.id ? { ...msg, attachments: stored } : msg
+                )
+              );
+            }
+          }
+        };
+
+        requestIdleCallback?.(() => hydrateInBackground()) ??
+          setTimeout(() => hydrateInBackground(), 100);
+      }
     },
-    [selectConversation, loadMessages, hydrateAttachments]
+    [selectConversation, loadMessages]
   );
 
   // Select conversation: load its messages with attachment hydration and update URL hash
   const handleSelect = useCallback(
-    async (id: string, searchQuery?: string) => {
+    (id: string, searchQuery?: string) => {
       const conv = conversations.find((c) => c.id === id);
       if (!conv) return;
 
@@ -306,7 +313,7 @@ export default function App() {
       // Set search highlight for scrolling to match
       setSearchHighlight(searchQuery ?? null);
 
-      await loadConversation(conv);
+      loadConversation(conv);
     },
     [conversations, loadConversation]
   );
@@ -440,6 +447,20 @@ export default function App() {
     [regenerate]
   );
 
+  // Cache rendered HTML for v2 storage
+  const handleCacheHtml = useCallback(
+    async (messageId: string, html: string) => {
+      const compressed = await compressHtml(html);
+      // Update message with cached HTML
+      loadMessages((prev: Message[]) =>
+        prev.map((msg) =>
+          msg.id === messageId ? { ...msg, cachedHtml: compressed } : msg
+        )
+      );
+    },
+    [loadMessages]
+  );
+
   const handleAgentSelectFromInput = useCallback(
     (agent: Agent) => {
       const newConfig = {
@@ -500,6 +521,7 @@ export default function App() {
                   onEdit={editMessage}
                   onResend={handleResend}
                   onRegenerate={handleRegenerate}
+                  onCacheHtml={handleCacheHtml}
                   searchHighlight={searchHighlight}
                   onHighlightShown={() => setSearchHighlight(null)}
                 />

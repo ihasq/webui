@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
+import { memo, useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react";
 import { Streamdown } from "streamdown";
 import { code } from "@streamdown/code";
 import { createMathPlugin } from "@streamdown/math";
@@ -7,6 +7,8 @@ import { cjk } from "@streamdown/cjk";
 import "katex/dist/katex.min.css";
 import type { Message } from "@/hooks/use-chat";
 import { useAnimatedText } from "@/hooks/use-animated-text";
+import { getCacheKey, getCachedHtml, setCachedHtml } from "@/hooks/use-rendered-cache";
+import { decompressHtml } from "@/lib/html-compression";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -84,6 +86,7 @@ interface ChatMessageProps {
   onEdit: (id: string, content: string) => void;
   onResend: (id: string, content: string) => Promise<void>;
   onRegenerate: (id: string) => Promise<void>;
+  onCacheHtml?: (id: string, html: string) => void;
   searchHighlight?: string | null;
   onHighlightShown?: () => void;
 }
@@ -193,20 +196,82 @@ function removeHighlightsFromElement(element: HTMLElement) {
 }
 
 function AssistantBubble({
+  messageId,
   content,
   reasoning,
   isAnimating,
   highlightQuery,
+  storedHtml,
+  onCacheHtml,
 }: {
+  messageId: string;
   content: string;
   reasoning?: string;
   isAnimating: boolean;
   highlightQuery?: string | null;
+  /** Compressed HTML from v2 storage */
+  storedHtml?: string;
+  /** Callback to save compressed HTML to storage */
+  onCacheHtml?: (id: string, html: string) => void;
 }) {
   const displayed = useAnimatedText(content, isAnimating);
   const isRevealing = displayed.length < content.length;
   const isThinking = isAnimating && !content && !!reasoning;
   const contentRef = useRef<HTMLDivElement>(null);
+  const hasCapturedRef = useRef(false);
+
+  // Decompress stored HTML from v2 storage (async)
+  const [decompressedHtml, setDecompressedHtml] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (storedHtml && !isAnimating) {
+      decompressHtml(storedHtml).then(setDecompressedHtml);
+    } else {
+      setDecompressedHtml(null);
+    }
+  }, [storedHtml, isAnimating]);
+
+  // Check in-memory cache for pre-rendered HTML (fallback for v1 messages)
+  const cacheKey = useMemo(
+    () => (!isAnimating && content && !storedHtml ? getCacheKey(messageId, content) : null),
+    [messageId, content, isAnimating, storedHtml]
+  );
+  const memoryCachedHtml = cacheKey ? getCachedHtml(cacheKey) : undefined;
+
+  // The HTML to render (prefer stored > memory cache > parse)
+  const cachedHtml = decompressedHtml ?? memoryCachedHtml;
+
+  // Memoize converted content to avoid recalculating on every render
+  const convertedContent = useMemo(
+    () => (displayed ? convertMathDelimiters(displayed) : ""),
+    [displayed]
+  );
+
+  // Capture and save HTML after streaming completes (for v2 storage)
+  useEffect(() => {
+    if (
+      !isAnimating &&
+      !isRevealing &&
+      !storedHtml &&
+      !hasCapturedRef.current &&
+      contentRef.current &&
+      onCacheHtml
+    ) {
+      hasCapturedRef.current = true;
+      // Wait for next frame to ensure render is complete
+      requestAnimationFrame(() => {
+        const html = contentRef.current?.innerHTML;
+        if (html && html.length > 0) {
+          // Save to in-memory cache as well
+          if (cacheKey) {
+            setCachedHtml(cacheKey, html);
+          }
+          // Notify parent to save to persistent storage
+          onCacheHtml(messageId, html);
+        }
+      });
+    }
+  }, [isAnimating, isRevealing, storedHtml, messageId, onCacheHtml, cacheKey]);
 
   // Apply text highlighting after render
   useEffect(() => {
@@ -220,7 +285,7 @@ function AssistantBubble({
     if (highlightQuery) {
       highlightTextInElement(el, highlightQuery);
     }
-  }, [highlightQuery, displayed]);
+  }, [highlightQuery, displayed, cachedHtml]);
 
   return (
     <div>
@@ -228,12 +293,15 @@ function AssistantBubble({
         <ReasoningBlock reasoning={reasoning} isAnimating={isThinking} />
       )}
       <div ref={contentRef} className="prose dark:prose-invert max-w-none text-sm">
-        {displayed ? (
+        {cachedHtml ? (
+          // Use cached HTML - instant render
+          <div dangerouslySetInnerHTML={{ __html: cachedHtml }} />
+        ) : displayed ? (
           <Streamdown
             plugins={plugins}
             isAnimating={isAnimating || isRevealing}
           >
-            {convertMathDelimiters(displayed)}
+            {convertedContent}
           </Streamdown>
         ) : isAnimating && !reasoning ? (
           <div className="flex items-center gap-1 text-muted-foreground">
@@ -384,6 +452,7 @@ export const ChatMessage = memo(function ChatMessage({
   onEdit,
   onResend,
   onRegenerate,
+  onCacheHtml,
   searchHighlight,
   onHighlightShown,
 }: ChatMessageProps) {
@@ -434,7 +503,15 @@ export const ChatMessage = memo(function ChatMessage({
           />
         ) : (
           <div className="group/msg">
-            <AssistantBubble content={message.content} reasoning={message.reasoning} isAnimating={isAnimating} highlightQuery={highlightQuery} />
+            <AssistantBubble
+              messageId={message.id}
+              content={message.content}
+              reasoning={message.reasoning}
+              isAnimating={isAnimating}
+              highlightQuery={highlightQuery}
+              storedHtml={message.cachedHtml}
+              onCacheHtml={onCacheHtml}
+            />
             {!isAnimating && message.content && (
               <div className="mt-1 flex gap-0.5">
                 <Button

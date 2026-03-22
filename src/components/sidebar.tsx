@@ -1,4 +1,4 @@
-import { useRef, useState, memo } from "react";
+import { useRef, useState, memo, useCallback } from "react";
 import { MarqueeText } from "@/components/ui/marquee-text";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ import {
   ArrowLeft,
   Pin,
   PinOff,
+  Github,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
@@ -44,7 +45,7 @@ interface SidebarProps {
 }
 
 
-function ConversationItem({
+const ConversationItem = memo(function ConversationItem({
   conv,
   isActive,
   onSelect,
@@ -54,12 +55,17 @@ function ConversationItem({
 }: {
   conv: Conversation;
   isActive: boolean;
-  onSelect: () => void;
-  onDelete: () => void;
-  onDuplicate: () => void;
-  onTogglePin: () => void;
+  onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
+  onDuplicate: (id: string) => void;
+  onTogglePin: (id: string) => void;
 }) {
   const [hovered, setHovered] = useState(false);
+
+  const handleSelect = useCallback(() => onSelect(conv.id), [onSelect, conv.id]);
+  const handleDelete = useCallback(() => onDelete(conv.id), [onDelete, conv.id]);
+  const handleDuplicate = useCallback(() => onDuplicate(conv.id), [onDuplicate, conv.id]);
+  const handleTogglePin = useCallback(() => onTogglePin(conv.id), [onTogglePin, conv.id]);
 
   return (
     <div
@@ -74,7 +80,7 @@ function ConversationItem({
     >
       <button
         className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm"
-        onClick={onSelect}
+        onClick={handleSelect}
       >
         {conv.pinned ? (
           <Pin className="size-3.5 shrink-0 opacity-50" />
@@ -126,7 +132,7 @@ function ConversationItem({
           <DropdownMenuItem
             onClick={(e) => {
               e.stopPropagation();
-              onTogglePin();
+              handleTogglePin();
             }}
           >
             {conv.pinned ? (
@@ -144,7 +150,7 @@ function ConversationItem({
           <DropdownMenuItem
             onClick={(e) => {
               e.stopPropagation();
-              onDuplicate();
+              handleDuplicate();
             }}
           >
             <Copy className="size-3.5" />
@@ -153,7 +159,7 @@ function ConversationItem({
           <DropdownMenuItem
             onClick={(e) => {
               e.stopPropagation();
-              onDelete();
+              handleDelete();
             }}
             className="text-destructive-foreground"
           >
@@ -166,7 +172,7 @@ function ConversationItem({
       </div>
     </div>
   );
-}
+});
 
 export const Sidebar = memo(function Sidebar({
   conversations,
@@ -302,10 +308,10 @@ export const Sidebar = memo(function Sidebar({
                   key={conv.id}
                   conv={conv}
                   isActive={activeId === conv.id}
-                  onSelect={() => handleSelect(conv.id)}
-                  onDelete={() => onDelete(conv.id)}
-                  onDuplicate={() => onDuplicate(conv.id)}
-                  onTogglePin={() => onTogglePin(conv.id)}
+                  onSelect={handleSelect}
+                  onDelete={onDelete}
+                  onDuplicate={onDuplicate}
+                  onTogglePin={onTogglePin}
                 />
               ))}
             </div>
@@ -321,6 +327,14 @@ export const Sidebar = memo(function Sidebar({
               <Moon className="size-4" />
             )}
           </Button>
+          <a
+            href="https://github.com/ihasq/webui"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex size-8 items-center justify-center rounded-lg transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-muted/50"
+          >
+            <Github className="size-4" />
+          </a>
         </div>
       </aside>
     </>

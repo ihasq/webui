@@ -14,6 +14,8 @@ export interface Message {
   content: string;
   reasoning?: string;
   attachments?: Attachment[];
+  /** Compressed HTML cache for assistant messages (v2 storage) */
+  cachedHtml?: string;
 }
 
 export type ReasoningEffort = "low" | "medium" | "high";
@@ -90,9 +92,12 @@ export function useChat(
     return { role: m.role, content: parts };
   }
 
-  const loadMessages = useCallback((msgs: Message[]) => {
-    setMessages(msgs);
-  }, []);
+  const loadMessages = useCallback(
+    (msgs: Message[] | ((prev: Message[]) => Message[])) => {
+      setMessages(msgs);
+    },
+    []
+  );
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
