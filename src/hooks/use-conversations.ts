@@ -8,6 +8,7 @@ export interface Conversation {
   title: string;
   messages: Message[];
   createdAt: number;
+  pinned?: boolean;
 }
 
 const STORAGE_KEY = "webui-conversations";
@@ -144,12 +145,31 @@ export function useConversations() {
     [conversations, persist]
   );
 
+  const togglePin = useCallback(
+    (id: string) => {
+      const next = conversations.map((c) =>
+        c.id === id ? { ...c, pinned: !c.pinned } : c
+      );
+      persist(next);
+    },
+    [conversations, persist]
+  );
+
   const newChat = useCallback(() => {
     setActiveId(null);
   }, []);
 
+  // Sort conversations: pinned first, then by createdAt descending
+  const sortedConversations = useMemo(() => {
+    return [...conversations].sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      return b.createdAt - a.createdAt;
+    });
+  }, [conversations]);
+
   return {
-    conversations,
+    conversations: sortedConversations,
     active,
     activeId,
     isLoading,
@@ -158,6 +178,7 @@ export function useConversations() {
     updateMessages,
     deleteConversation,
     duplicateConversation,
+    togglePin,
     newChat,
   };
 }

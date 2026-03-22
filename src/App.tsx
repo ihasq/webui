@@ -115,6 +115,10 @@ function AttachmentList({
 }
 
 const CONFIG_KEY = "webui-config";
+const SIDEBAR_WIDTH_KEY = "webui-sidebar-width";
+const SETTINGS_SIDEBAR_WIDTH_KEY = "webui-settings-sidebar-width";
+const DEFAULT_SIDEBAR_WIDTH = 256; // w-64 = 16rem
+const DEFAULT_SETTINGS_SIDEBAR_WIDTH = 288; // w-72 = 18rem
 
 function loadConfig(): ChatConfig {
   try {
@@ -144,9 +148,24 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     window.innerWidth >= 768
   );
-  const [settingsSidebarOpen, setSettingsSidebarOpen] = useState(false);
+  const [settingsSidebarOpen, setSettingsSidebarOpen] = useState(() =>
+    window.innerWidth >= 768
+  );
+  // Track desktop sidebar states for restoration after mobile
+  const desktopSidebarOpenRef = useRef(true);
+  const desktopSettingsSidebarOpenRef = useRef(true);
+  const wasMobileRef = useRef(window.innerWidth < 768);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+    return stored ? Number(stored) : DEFAULT_SIDEBAR_WIDTH;
+  });
+  const [settingsSidebarWidth, setSettingsSidebarWidth] = useState(() => {
+    const stored = localStorage.getItem(SETTINGS_SIDEBAR_WIDTH_KEY);
+    return stored ? Number(stored) : DEFAULT_SETTINGS_SIDEBAR_WIDTH;
+  });
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [searchHighlight, setSearchHighlight] = useState<string | null>(null);
+  const [isMultiLine, setIsMultiLine] = useState(false);
   const inputContainerRef = useRef<HTMLDivElement>(null);
 
   const { updateAvailable, applyUpdate, dismissUpdate } = useUpdateChecker();
@@ -160,6 +179,7 @@ export default function App() {
     updateMessages,
     deleteConversation,
     duplicateConversation,
+    togglePin,
     newChat,
   } = useConversations();
 
@@ -193,9 +213,44 @@ export default function App() {
     saveConfig(newConfig);
   }, []);
 
+  const handleSidebarResizeEnd = useCallback((newWidth: number) => {
+    setSidebarWidth(newWidth);
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(newWidth));
+  }, []);
+
+  const handleSettingsSidebarResizeEnd = useCallback((newWidth: number) => {
+    setSettingsSidebarWidth(newWidth);
+    localStorage.setItem(SETTINGS_SIDEBAR_WIDTH_KEY, String(newWidth));
+  }, []);
+
   useEffect(() => {
     document.documentElement.classList.toggle("dark", isDark);
   }, [isDark]);
+
+  // Handle sidebar state transitions between mobile and desktop
+  useEffect(() => {
+    const handleResize = () => {
+      const isMobile = window.innerWidth < 768;
+      const wasMobile = wasMobileRef.current;
+
+      if (isMobile && !wasMobile) {
+        // Transitioning to mobile: save desktop states and close
+        desktopSidebarOpenRef.current = sidebarOpen;
+        desktopSettingsSidebarOpenRef.current = settingsSidebarOpen;
+        setSidebarOpen(false);
+        setSettingsSidebarOpen(false);
+      } else if (!isMobile && wasMobile) {
+        // Transitioning to desktop: restore saved states
+        setSidebarOpen(desktopSidebarOpenRef.current);
+        setSettingsSidebarOpen(desktopSettingsSidebarOpenRef.current);
+      }
+
+      wasMobileRef.current = isMobile;
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [sidebarOpen, settingsSidebarOpen]);
 
   // Handle mobile keyboard visibility
   useEffect(() => {
@@ -504,15 +559,25 @@ export default function App() {
         onNew={handleNew}
         onDelete={handleDelete}
         onDuplicate={handleDuplicate}
+        onTogglePin={togglePin}
         isDark={isDark}
         onToggleDark={() => setIsDark((d) => !d)}
         isOpen={sidebarOpen}
         onToggleOpen={() => {
-          setSidebarOpen((o) => !o);
+          setSidebarOpen((o) => {
+            const newState = !o;
+            // Update desktop state ref when in desktop mode
+            if (window.innerWidth >= 768) {
+              desktopSidebarOpenRef.current = newState;
+            }
+            return newState;
+          });
           if (window.innerWidth < 768) {
             setSettingsSidebarOpen(false);
           }
         }}
+        width={sidebarWidth}
+        onResizeEnd={handleSidebarResizeEnd}
       />
 
       {/* Main chat area */}
@@ -563,7 +628,7 @@ export default function App() {
             )}
 
             {/* Input row */}
-            <div className="flex items-end gap-2 p-2">
+            <div className={`flex gap-2 p-2 ${isMultiLine ? "items-end" : "items-center"}`}>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -576,14 +641,18 @@ export default function App() {
                 variant="ghost"
                 size="icon"
                 onClick={() => fileInputRef.current?.click()}
-                className="shrink-0 self-start"
+                className={`shrink-0 ${isMultiLine ? "self-start" : ""}`}
               >
                 <Plus className="size-4" />
               </Button>
               <Textarea
                 ref={textareaRef}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  // Check if textarea has multiple lines (scrollHeight > min-height of 40px)
+                  setIsMultiLine(e.target.scrollHeight > 44);
+                }}
                 onKeyDown={handleKeyDown}
                 onFocus={handleTextareaFocus}
                 placeholder="Type prompt..."
@@ -601,6 +670,7 @@ export default function App() {
                 </Button>
               ) : (
                 <Button
+                  variant="ghost"
                   size="icon"
                   onClick={handleSend}
                   disabled={!input.trim() && attachments.length === 0}
@@ -619,11 +689,20 @@ export default function App() {
         onChange={handleConfigChange}
         isOpen={settingsSidebarOpen}
         onToggleOpen={() => {
-          setSettingsSidebarOpen((o) => !o);
+          setSettingsSidebarOpen((o) => {
+            const newState = !o;
+            // Update desktop state ref when in desktop mode
+            if (window.innerWidth >= 768) {
+              desktopSettingsSidebarOpenRef.current = newState;
+            }
+            return newState;
+          });
           if (window.innerWidth < 768) {
             setSidebarOpen(false);
           }
         }}
+        width={settingsSidebarWidth}
+        onResizeEnd={handleSettingsSidebarResizeEnd}
       />
 
       {updateAvailable && (

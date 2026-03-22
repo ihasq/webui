@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { MarqueeText } from "@/components/ui/marquee-text";
+import { ResizeHandle } from "@/components/ui/resize-handle";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,6 +23,8 @@ interface SettingsSidebarProps {
   onChange: (config: ChatConfig) => void;
   isOpen: boolean;
   onToggleOpen: () => void;
+  width: number;
+  onResizeEnd: (newWidth: number) => void;
 }
 
 function NumberInput({
@@ -243,6 +246,8 @@ export function SettingsSidebar({
   onChange,
   isOpen,
   onToggleOpen,
+  width,
+  onResizeEnd,
 }: SettingsSidebarProps) {
   const updateParams = (patch: Partial<InferenceParams>) =>
     onChange({ ...config, params: { ...config.params, ...patch } });
@@ -271,13 +276,17 @@ export function SettingsSidebar({
 
       {/* Sidebar */}
       <aside
+        data-settings-sidebar-width
+        data-closed={!isOpen}
         className={cn(
           "fixed inset-y-0 right-0 z-40 flex w-72 shrink-0 flex-col border-l bg-sidebar text-sidebar-foreground transition-transform duration-200 md:relative md:transition-[margin]",
           isOpen
             ? "translate-x-0 md:mr-0"
-            : "translate-x-full md:translate-x-0 md:-mr-72"
+            : "translate-x-full md:translate-x-0"
         )}
+        style={{ "--settings-sidebar-width": `${width}px` } as React.CSSProperties}
       >
+        <ResizeHandle side="right" width={width} onResizeEnd={onResizeEnd} />
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b p-2">
           <div className="flex items-center gap-2 px-2">

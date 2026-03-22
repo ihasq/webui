@@ -175,3 +175,19 @@
     bottom: 0 !important;
   }
 }
+
+/* Resizable sidebars - only on desktop */
+@media (min-width: 768px) {
+  [data-sidebar-width] {
+    width: var(--sidebar-width) !important;
+  }
+  [data-sidebar-width][data-closed="true"] {
+    margin-left: calc(var(--sidebar-width) * -1) !important;
+  }
+  [data-settings-sidebar-width] {
+    width: var(--settings-sidebar-width) !important;
+  }
+  [data-settings-sidebar-width][data-closed="true"] {
+    margin-right: calc(var(--settings-sidebar-width) * -1) !important;
+  }
+}

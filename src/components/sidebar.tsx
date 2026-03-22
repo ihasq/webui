@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { MarqueeText } from "@/components/ui/marquee-text";
+import { ResizeHandle } from "@/components/ui/resize-handle";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -21,6 +22,8 @@ import {
   EllipsisVertical,
   Search,
   ArrowLeft,
+  Pin,
+  PinOff,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
@@ -31,10 +34,13 @@ interface SidebarProps {
   onNew: () => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
+  onTogglePin: (id: string) => void;
   isDark: boolean;
   onToggleDark: () => void;
   isOpen: boolean;
   onToggleOpen: () => void;
+  width: number;
+  onResizeEnd: (newWidth: number) => void;
 }
 
 
@@ -44,12 +50,14 @@ function ConversationItem({
   onSelect,
   onDelete,
   onDuplicate,
+  onTogglePin,
 }: {
   conv: Conversation;
   isActive: boolean;
   onSelect: () => void;
   onDelete: () => void;
   onDuplicate: () => void;
+  onTogglePin: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
 
@@ -68,7 +76,11 @@ function ConversationItem({
         className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm"
         onClick={onSelect}
       >
-        <MessageSquare className="size-3.5 shrink-0 opacity-50" />
+        {conv.pinned ? (
+          <Pin className="size-3.5 shrink-0 opacity-50" />
+        ) : (
+          <MessageSquare className="size-3.5 shrink-0 opacity-50" />
+        )}
         <span className="min-w-0 flex-1 overflow-hidden">
           <MarqueeText text={conv.title} hovering={hovered} />
         </span>
@@ -98,12 +110,37 @@ function ConversationItem({
         >
           <DropdownMenu>
             <DropdownMenuTrigger
-              render={<Button variant="ghost" size="icon-xs" className="hover:bg-transparent dark:hover:bg-transparent" />}
+              render={(props) => (
+                <Button
+                  {...props}
+                  variant="ghost"
+                  size="icon-xs"
+                  className="hover:bg-transparent dark:hover:bg-transparent"
+                />
+              )}
               onClick={(e: React.MouseEvent) => e.stopPropagation()}
             >
               <EllipsisVertical className="size-3.5" />
             </DropdownMenuTrigger>
         <DropdownMenuContent side="right" align="start">
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePin();
+            }}
+          >
+            {conv.pinned ? (
+              <>
+                <PinOff className="size-3.5" />
+                Unpin
+              </>
+            ) : (
+              <>
+                <Pin className="size-3.5" />
+                Pin
+              </>
+            )}
+          </DropdownMenuItem>
           <DropdownMenuItem
             onClick={(e) => {
               e.stopPropagation();
@@ -138,10 +175,13 @@ export function Sidebar({
   onNew,
   onDelete,
   onDuplicate,
+  onTogglePin,
   isDark,
   onToggleDark,
   isOpen,
   onToggleOpen,
+  width,
+  onResizeEnd,
 }: SidebarProps) {
   const [searchMode, setSearchMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -207,13 +247,17 @@ export function Sidebar({
       )}
 
       <aside
+        data-sidebar-width
+        data-closed={!isOpen}
         className={cn(
           "fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r bg-sidebar text-sidebar-foreground transition-transform duration-200 md:relative md:transition-[margin]",
           isOpen
             ? "translate-x-0 md:ml-0"
-            : "-translate-x-full md:translate-x-0 md:-ml-64"
+            : "-translate-x-full md:translate-x-0"
         )}
+        style={{ "--sidebar-width": `${width}px` } as React.CSSProperties}
       >
+        <ResizeHandle side="left" width={width} onResizeEnd={onResizeEnd} />
         {/* Top */}
         <div className="flex shrink-0 items-center gap-1 border-b p-2">
           <Button variant="ghost" size="icon" onClick={onToggleOpen}>
@@ -261,6 +305,7 @@ export function Sidebar({
                   onSelect={() => handleSelect(conv.id)}
                   onDelete={() => onDelete(conv.id)}
                   onDuplicate={() => onDuplicate(conv.id)}
+                  onTogglePin={() => onTogglePin(conv.id)}
                 />
               ))}
             </div>
