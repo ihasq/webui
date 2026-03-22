@@ -151,14 +151,9 @@ self.addEventListener("install", (event) => {
   self.skipWaiting();
 });
 
-// Activate event: clean up if needed
+// Activate event: take control of all clients immediately
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    (async () => {
-      // Clear old caches if version changed (handled by DB upgrade)
-      self.clients.claim();
-    })()
-  );
+  event.waitUntil(self.clients.claim());
 });
 
 // Message handler for update-related commands

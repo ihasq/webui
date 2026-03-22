@@ -10,6 +10,7 @@ interface VersionInfo {
 interface UpdateState {
   checking: boolean;
   updateAvailable: boolean;
+  applying: boolean;
   currentBuildId: string | null;
   latestBuildId: string | null;
   error: string | null;
@@ -59,6 +60,7 @@ export function useUpdateChecker() {
   const [state, setState] = useState<UpdateState>({
     checking: false,
     updateAvailable: false,
+    applying: false,
     currentBuildId: null,
     latestBuildId: null,
     error: null,
@@ -66,6 +68,7 @@ export function useUpdateChecker() {
 
   const checkingRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reloadingRef = useRef(false);
 
   const checkForUpdate = useCallback(async () => {
     // Prevent concurrent checks
@@ -94,13 +97,14 @@ export function useUpdateChecker() {
       const latestBuildId = latestVersion.buildId;
       const updateAvailable = currentBuildId !== null && currentBuildId !== latestBuildId;
 
-      setState({
+      setState((s) => ({
+        ...s,
         checking: false,
         updateAvailable,
         currentBuildId,
         latestBuildId,
         error: null,
-      });
+      }));
 
       // If update is available, trigger SW update check
       if (updateAvailable && navigator.serviceWorker) {
@@ -119,17 +123,23 @@ export function useUpdateChecker() {
   }, []);
 
   const applyUpdate = useCallback(async () => {
+    if (state.applying) return;
+
+    setState((s) => ({ ...s, applying: true }));
+
     const registration = await navigator.serviceWorker?.ready;
     const waiting = registration?.waiting;
 
     if (waiting) {
       // Tell the waiting SW to skip waiting and become active
+      // The controllerchange event will handle the reload
       waiting.postMessage({ type: "SKIP_WAITING" });
+    } else {
+      // No waiting SW, just reload to fetch new assets
+      reloadingRef.current = true;
+      window.location.reload();
     }
-
-    // Reload the page to use the new SW
-    window.location.reload();
-  }, []);
+  }, [state.applying]);
 
   const dismissUpdate = useCallback(() => {
     setState((s) => ({ ...s, updateAvailable: false }));
@@ -162,6 +172,10 @@ export function useUpdateChecker() {
   // Listen for SW controller change (new SW activated)
   useEffect(() => {
     const handleControllerChange = () => {
+      // Prevent double reload
+      if (reloadingRef.current) return;
+      reloadingRef.current = true;
+
       // New SW has taken over, reload to get fresh assets
       window.location.reload();
     };

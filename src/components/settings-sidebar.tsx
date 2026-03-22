@@ -155,7 +155,9 @@ function NumberInput({
               }
             }}
             onInput={(e) => {
-              if (isDragging) {
+              // Desktop: isDragging is set by pointerDown
+              // Mobile: only respond when horizontal gesture is confirmed
+              if (isDragging || gestureDecidedRef.current === "horizontal") {
                 const newValue = Number((e.target as HTMLInputElement).value);
                 setLocalValue(newValue);
               }
@@ -172,7 +174,7 @@ function NumberInput({
                 onChange(localValue);
               }
             }}
-            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted outline-none pointer-events-auto touch-none
+            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted outline-none pointer-events-auto touch-pan-y
               [&::-webkit-slider-thumb]:size-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-ring [&::-webkit-slider-thumb]:bg-white
               [&::-moz-range-thumb]:size-3.5 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-ring [&::-moz-range-thumb]:bg-white
               [&::-moz-range-progress]:h-1.5 [&::-moz-range-progress]:rounded-full [&::-moz-range-progress]:bg-primary"
