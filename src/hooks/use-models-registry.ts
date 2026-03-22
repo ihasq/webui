@@ -103,9 +103,8 @@ export function useModelsRegistry() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const cached = loadCache();
-    if (cached && cached.length > 0) {
-      setProviders(cached);
+    // Skip fetch if we already have cached data from initial state
+    if (providers.length > 0) {
       return;
     }
 
@@ -133,6 +132,7 @@ export function useModelsRegistry() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const refresh = useCallback(() => {

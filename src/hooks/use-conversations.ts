@@ -1,7 +1,10 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { get, set } from "idb-keyval";
 import type { Message } from "./use-chat";
 import { deleteAttachments } from "./use-attachment-store";
+
+// Debounce save to IndexedDB to avoid stuttering during streaming
+const SAVE_DEBOUNCE_MS = 500;
 
 export interface Conversation {
   id: string;
@@ -59,6 +62,37 @@ export function useConversations() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Debounced save timer ref
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSaveRef = useRef<Conversation[] | null>(null);
+
+  // Debounced save function
+  const debouncedSave = useCallback((data: Conversation[]) => {
+    pendingSaveRef.current = data;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = setTimeout(() => {
+      if (pendingSaveRef.current) {
+        saveToIdb(pendingSaveRef.current);
+        pendingSaveRef.current = null;
+      }
+      saveTimerRef.current = null;
+    }, SAVE_DEBOUNCE_MS);
+  }, []);
+
+  // Flush pending save on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        if (pendingSaveRef.current) {
+          saveToIdb(pendingSaveRef.current);
+        }
+      }
+    };
+  }, []);
+
   // Load conversations from IndexedDB on mount
   useEffect(() => {
     loadFromIdb().then((loaded) => {
@@ -106,11 +140,12 @@ export function useConversations() {
               : c.title;
           return { ...c, messages, title };
         });
-        saveToIdb(next);
+        // Use debounced save to avoid stuttering during streaming
+        debouncedSave(next);
         return next;
       });
     },
-    []
+    [debouncedSave]
   );
 
   const deleteConversation = useCallback(

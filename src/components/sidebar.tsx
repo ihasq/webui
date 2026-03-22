@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, memo } from "react";
 import { MarqueeText } from "@/components/ui/marquee-text";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import { Button } from "@/components/ui/button";
@@ -168,7 +168,7 @@ function ConversationItem({
   );
 }
 
-export function Sidebar({
+export const Sidebar = memo(function Sidebar({
   conversations,
   activeId,
   onSelect,
@@ -325,4 +325,4 @@ export function Sidebar({
       </aside>
     </>
   );
-}
+});

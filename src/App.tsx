@@ -1,16 +1,15 @@
-import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useChat, defaultParams, type ChatConfig, type Attachment, type Message } from "@/hooks/use-chat";
 import { loadAttachments } from "@/hooks/use-attachment-store";
 import { useConversations, type Conversation } from "@/hooks/use-conversations";
+import { useAgents, type Agent } from "@/hooks/use-agents";
 import { ChatMessage } from "@/components/chat-message";
 import { Sidebar } from "@/components/sidebar";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Send, Square, Plus, X } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { SettingsSidebar } from "@/components/settings-sidebar";
 import { UpdatePrompt } from "@/components/update-prompt";
 import { useUpdateChecker } from "@/hooks/use-update-checker";
+import { ChatInput } from "@/components/chat-input";
 
 /** Generate a URL hash for a conversation: first user prompt + UUID */
 function generateConversationHash(conv: Conversation): string {
@@ -31,87 +30,6 @@ function findConversationByHash(
     const prefix = firstUserMessage?.content ?? "";
     return `${prefix}${conv.id}` === decoded;
   });
-}
-
-function AttachmentList({
-  attachments,
-  onReorder,
-  onRemove,
-}: {
-  attachments: Attachment[];
-  onReorder: (attachments: Attachment[]) => void;
-  onRemove: (index: number) => void;
-}) {
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [overIdx, setOverIdx] = useState<number | null>(null);
-
-  const handleDragStart = (i: number) => {
-    setDragIdx(i);
-  };
-
-  const handleDragOver = (e: React.DragEvent, i: number) => {
-    e.preventDefault();
-    setOverIdx(i);
-  };
-
-  const handleDrop = (e: React.DragEvent, dropIdx: number) => {
-    e.preventDefault();
-    if (dragIdx === null || dragIdx === dropIdx) {
-      setDragIdx(null);
-      setOverIdx(null);
-      return;
-    }
-    const next = [...attachments];
-    const [moved] = next.splice(dragIdx, 1);
-    next.splice(dropIdx, 0, moved);
-    onReorder(next);
-    setDragIdx(null);
-    setOverIdx(null);
-  };
-
-  const handleDragEnd = () => {
-    setDragIdx(null);
-    setOverIdx(null);
-  };
-
-  return (
-    <div className="flex gap-2 overflow-x-auto px-2 pt-2">
-      {attachments.map((a, i) => (
-        <div
-          key={`${a.name}-${i}`}
-          draggable
-          onDragStart={() => handleDragStart(i)}
-          onDragOver={(e) => handleDragOver(e, i)}
-          onDrop={(e) => handleDrop(e, i)}
-          onDragEnd={handleDragEnd}
-          className={`group/att relative shrink-0 cursor-grab overflow-hidden rounded-lg border bg-muted transition-all active:cursor-grabbing ${
-            dragIdx === i ? "opacity-40" : ""
-          } ${overIdx === i && dragIdx !== i ? "ring-2 ring-ring" : ""}`}
-        >
-          {a.mimeType.startsWith("image/") ? (
-            <img
-              src={a.dataUrl}
-              alt={a.name}
-              className="h-16 w-16 object-cover"
-              draggable={false}
-            />
-          ) : (
-            <div className="flex h-16 w-24 items-center justify-center px-2">
-              <span className="truncate text-xs text-muted-foreground">
-                {a.name}
-              </span>
-            </div>
-          )}
-          <button
-            onClick={() => onRemove(i)}
-            className="absolute top-0.5 right-0.5 flex size-4 items-center justify-center rounded-full bg-foreground/70 text-background opacity-0 transition-opacity group-hover/att:opacity-100"
-          >
-            <X className="size-2.5" />
-          </button>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 const CONFIG_KEY = "webui-config";
@@ -139,9 +57,6 @@ function saveConfig(config: ChatConfig) {
 
 export default function App() {
   const [config, setConfig] = useState<ChatConfig>(loadConfig);
-  const [input, setInput] = useState("");
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDark, setIsDark] = useState(() =>
     window.matchMedia("(prefers-color-scheme: dark)").matches
   );
@@ -165,10 +80,10 @@ export default function App() {
   });
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [searchHighlight, setSearchHighlight] = useState<string | null>(null);
-  const [isMultiLine, setIsMultiLine] = useState(false);
-  const inputContainerRef = useRef<HTMLDivElement>(null);
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
 
   const { updateAvailable, applyUpdate, dismissUpdate } = useUpdateChecker();
+  const { agents, createAgent, updateAgent, deleteAgent, getAgent } = useAgents();
 
   const {
     conversations,
@@ -203,7 +118,6 @@ export default function App() {
   } = useChat(config, onMessagesChange);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const lastScrollTopRef = useRef(0);
   const lastScrollHeightRef = useRef(0);
@@ -221,6 +135,40 @@ export default function App() {
   const handleSettingsSidebarResizeEnd = useCallback((newWidth: number) => {
     setSettingsSidebarWidth(newWidth);
     localStorage.setItem(SETTINGS_SIDEBAR_WIDTH_KEY, String(newWidth));
+  }, []);
+
+  const handleSettingsSidebarToggle = useCallback(() => {
+    setSettingsSidebarOpen((o) => {
+      const newState = !o;
+      if (window.innerWidth >= 768) {
+        desktopSettingsSidebarOpenRef.current = newState;
+      }
+      return newState;
+    });
+    if (window.innerWidth < 768) {
+      setSidebarOpen(false);
+    }
+  }, []);
+
+  const handleAgentSelect = useCallback((agent: Agent | null) => {
+    setActiveAgentId(agent?.id ?? null);
+  }, []);
+
+  const handleToggleDark = useCallback(() => {
+    setIsDark((d) => !d);
+  }, []);
+
+  const handleSidebarToggle = useCallback(() => {
+    setSidebarOpen((o) => {
+      const newState = !o;
+      if (window.innerWidth >= 768) {
+        desktopSidebarOpenRef.current = newState;
+      }
+      return newState;
+    });
+    if (window.innerWidth < 768) {
+      setSettingsSidebarOpen(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -450,75 +398,30 @@ export default function App() {
     [duplicateConversation]
   );
 
-  const handleFileSelect = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (!files) return;
+  const handleSend = useCallback(
+    (content: string, attachments?: Attachment[]) => {
+      if (isLoading) return;
 
-      for (const file of Array.from(files)) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          setAttachments((prev) => [
-            ...prev,
-            {
-              name: file.name,
-              mimeType: file.type,
-              dataUrl: reader.result as string,
-            },
-          ]);
-        };
-        reader.readAsDataURL(file);
+      let convId = activeIdRef.current;
+      const isNewConversation = !convId;
+
+      if (!convId) {
+        convId = createConversation();
+        activeIdRef.current = convId;
       }
-      // Reset so the same file can be selected again
-      e.target.value = "";
-    },
-    []
-  );
 
-  const removeAttachment = useCallback((index: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
-  }, []);
+      // Enable auto-scroll when sending a new message
+      shouldAutoScrollRef.current = true;
 
-  const handleSend = useCallback(() => {
-    if ((!input.trim() && attachments.length === 0) || isLoading) return;
+      chatSend(content, attachments);
 
-    let convId = activeIdRef.current;
-    const isNewConversation = !convId;
-
-    if (!convId) {
-      convId = createConversation();
-      activeIdRef.current = convId;
-    }
-
-    // Enable auto-scroll when sending a new message
-    shouldAutoScrollRef.current = true;
-
-    chatSend(input, attachments.length > 0 ? attachments : undefined);
-
-    // Update URL hash (for new conversations, this is the first user message)
-    if (isNewConversation && convId) {
-      const hash = encodeURIComponent(`${input.trim()}${convId}`);
-      window.history.replaceState(null, "", `#${hash}`);
-    }
-
-    setInput("");
-    setAttachments([]);
-    // On mobile, blur to dismiss keyboard; on desktop, keep focus
-    if (window.innerWidth < 768) {
-      textareaRef.current?.blur();
-    } else {
-      textareaRef.current?.focus();
-    }
-  }, [input, attachments, isLoading, createConversation, chatSend]);
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
+      // Update URL hash (for new conversations, this is the first user message)
+      if (isNewConversation && convId) {
+        const hash = encodeURIComponent(`${content.trim()}${convId}`);
+        window.history.replaceState(null, "", `#${hash}`);
       }
     },
-    [handleSend]
+    [isLoading, createConversation, chatSend]
   );
 
   const handleResend = useCallback(
@@ -537,17 +440,23 @@ export default function App() {
     [regenerate]
   );
 
-  // Prevent auto-scroll when focusing textarea on mobile
-  const handleTextareaFocus = useCallback(() => {
-    const scrollTop = scrollRef.current?.scrollTop ?? 0;
-    requestAnimationFrame(() => {
-      window.scrollTo(0, 0);
-      document.documentElement.scrollTop = 0;
-      document.body.scrollTop = 0;
-      if (scrollRef.current) {
-        scrollRef.current.scrollTop = scrollTop;
-      }
-    });
+  const handleAgentSelectFromInput = useCallback(
+    (agent: Agent) => {
+      const newConfig = {
+        endpoint: agent.endpoint,
+        apiKey: agent.apiKey,
+        model: agent.model,
+        params: agent.params,
+      };
+      setConfig(newConfig);
+      saveConfig(newConfig);
+      setActiveAgentId(agent.id);
+    },
+    []
+  );
+
+  const handleClearAgent = useCallback(() => {
+    setActiveAgentId(null);
   }, []);
 
   return (
@@ -561,21 +470,9 @@ export default function App() {
         onDuplicate={handleDuplicate}
         onTogglePin={togglePin}
         isDark={isDark}
-        onToggleDark={() => setIsDark((d) => !d)}
+        onToggleDark={handleToggleDark}
         isOpen={sidebarOpen}
-        onToggleOpen={() => {
-          setSidebarOpen((o) => {
-            const newState = !o;
-            // Update desktop state ref when in desktop mode
-            if (window.innerWidth >= 768) {
-              desktopSidebarOpenRef.current = newState;
-            }
-            return newState;
-          });
-          if (window.innerWidth < 768) {
-            setSettingsSidebarOpen(false);
-          }
-        }}
+        onToggleOpen={handleSidebarToggle}
         width={sidebarWidth}
         onResizeEnd={handleSidebarResizeEnd}
       />
@@ -613,74 +510,18 @@ export default function App() {
 
         {/* Floating input */}
         <div
-          ref={inputContainerRef}
           className="input-container pointer-events-none inset-x-0 p-4"
           style={{ bottom: keyboardOffset }}
         >
-          <div className="pointer-events-auto mx-auto max-w-3xl rounded-xl border bg-background/60 shadow-lg backdrop-blur-md">
-            {/* Attachment previews (drag to reorder) */}
-            {attachments.length > 0 && (
-              <AttachmentList
-                attachments={attachments}
-                onReorder={setAttachments}
-                onRemove={removeAttachment}
-              />
-            )}
-
-            {/* Input row */}
-            <div className={`flex gap-2 p-2 ${isMultiLine ? "items-end" : "items-center"}`}>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept="image/*,.pdf,.txt,.csv,.json,.md"
-                onChange={handleFileSelect}
-                className="hidden"
-              />
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => fileInputRef.current?.click()}
-                className={`shrink-0 ${isMultiLine ? "self-start" : ""}`}
-              >
-                <Plus className="size-4" />
-              </Button>
-              <Textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => {
-                  setInput(e.target.value);
-                  // Check if textarea has multiple lines (scrollHeight > min-height of 40px)
-                  setIsMultiLine(e.target.scrollHeight > 44);
-                }}
-                onKeyDown={handleKeyDown}
-                onFocus={handleTextareaFocus}
-                placeholder="Type prompt..."
-                className="min-h-10 max-h-40 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:border-0"
-                rows={1}
-              />
-              {isLoading ? (
-                <Button
-                  variant="destructive"
-                  size="icon"
-                  onClick={stop}
-                  className="shrink-0"
-                >
-                  <Square className="size-4" />
-                </Button>
-              ) : (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleSend}
-                  disabled={!input.trim() && attachments.length === 0}
-                  className="shrink-0"
-                >
-                  <Send className="size-4" />
-                </Button>
-              )}
-            </div>
-          </div>
+          <ChatInput
+            onSend={handleSend}
+            onStop={stop}
+            isLoading={isLoading}
+            agents={agents}
+            activeAgentId={activeAgentId}
+            onAgentSelect={handleAgentSelectFromInput}
+            onClearAgent={handleClearAgent}
+          />
         </div>
       </div>
 
@@ -688,21 +529,16 @@ export default function App() {
         config={config}
         onChange={handleConfigChange}
         isOpen={settingsSidebarOpen}
-        onToggleOpen={() => {
-          setSettingsSidebarOpen((o) => {
-            const newState = !o;
-            // Update desktop state ref when in desktop mode
-            if (window.innerWidth >= 768) {
-              desktopSettingsSidebarOpenRef.current = newState;
-            }
-            return newState;
-          });
-          if (window.innerWidth < 768) {
-            setSidebarOpen(false);
-          }
-        }}
+        onToggleOpen={handleSettingsSidebarToggle}
+        activeAgentId={activeAgentId}
+        onAgentSelect={handleAgentSelect}
         width={settingsSidebarWidth}
         onResizeEnd={handleSettingsSidebarResizeEnd}
+        agents={agents}
+        onCreateAgent={createAgent}
+        onUpdateAgent={updateAgent}
+        onDeleteAgent={deleteAgent}
+        getAgent={getAgent}
       />
 
       {updateAvailable && (

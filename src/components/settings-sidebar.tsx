@@ -1,22 +1,231 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { MarqueeText } from "@/components/ui/marquee-text";
+import { useState, useCallback, useRef, useEffect, memo } from "react";
 import { ResizeHandle } from "@/components/ui/resize-handle";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { RefreshCw, PanelRightClose, Bot } from "lucide-react";
-import type { ChatConfig, InferenceParams, ReasoningEffort } from "@/hooks/use-chat";
-import { useModelsRegistry, type ProviderInfo } from "@/hooks/use-models-registry";
-import { ModelSearch } from "@/components/model-search";
+import { Input } from "@/components/ui/input";
+import { PanelRightClose, Bot, Plus, Pencil, Trash2, Check, X } from "lucide-react";
+import type { Agent } from "@/hooks/use-agents";
+import { ConfigEditor } from "@/components/config-editor";
+import type { ChatConfig } from "@/hooks/use-chat";
+import { defaultParams } from "@/hooks/use-chat";
 import { cn } from "@/lib/utils";
+
+// ============================================
+// AgentItem Component (isolated state for editing)
+// ============================================
+
+interface AgentItemProps {
+  agent: Agent;
+  isActive: boolean;
+  onSelect: (agent: Agent) => void;
+  onUpdateName: (id: string, nickname: string) => void;
+  onDelete: (id: string) => void;
+  autoEditName?: boolean;
+  onAutoEditComplete?: () => void;
+}
+
+const AgentItem = memo(function AgentItem({
+  agent,
+  isActive,
+  onSelect,
+  onUpdateName,
+  onDelete,
+  autoEditName,
+  onAutoEditComplete,
+}: AgentItemProps) {
+  const [isEditing, setIsEditing] = useState(autoEditName ?? false);
+  const [nameValue, setNameValue] = useState(agent.nickname);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Handle autoEditName prop change
+  useEffect(() => {
+    if (autoEditName) {
+      setIsEditing(true);
+      setNameValue(agent.nickname);
+    }
+  }, [autoEditName, agent.nickname]);
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
+
+  const handleStartEdit = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setNameValue(agent.nickname);
+    setIsEditing(true);
+  }, [agent.nickname]);
+
+  const handleSave = useCallback(() => {
+    if (nameValue.trim()) {
+      onUpdateName(agent.id, nameValue.trim());
+    }
+    setIsEditing(false);
+    onAutoEditComplete?.();
+  }, [agent.id, nameValue, onUpdateName, onAutoEditComplete]);
+
+  const handleCancel = useCallback(() => {
+    setNameValue(agent.nickname);
+    setIsEditing(false);
+    onAutoEditComplete?.();
+  }, [agent.nickname, onAutoEditComplete]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === "Escape") {
+      handleCancel();
+    }
+  }, [handleSave, handleCancel]);
+
+  const handleDelete = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onDelete(agent.id);
+  }, [agent.id, onDelete]);
+
+  const handleSelect = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    onSelect(agent);
+  }, [agent, onSelect]);
+
+  return (
+    <div
+      className={cn(
+        "group flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-sm",
+        isActive ? "bg-accent" : "hover:bg-accent/50"
+      )}
+      onMouseDown={isEditing ? undefined : handleSelect}
+    >
+      {isEditing ? (
+        <div className="flex min-w-0 flex-1 items-center gap-1">
+          <Bot className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="shrink-0 text-muted-foreground">@</span>
+          <Input
+            ref={inputRef}
+            value={nameValue}
+            onChange={(e) => setNameValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={handleSave}
+            className="h-6 min-w-0 flex-1 px-1 py-0 text-sm"
+          />
+          <Button variant="ghost" size="icon-xs" onClick={handleSave}>
+            <Check className="size-3" />
+          </Button>
+          <Button variant="ghost" size="icon-xs" onClick={handleCancel}>
+            <X className="size-3" />
+          </Button>
+        </div>
+      ) : (
+        <>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <Bot className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate">@{agent.nickname}</span>
+          </div>
+          <div className={cn(
+            "flex shrink-0 items-center gap-0.5",
+            isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          )}>
+            <Button variant="ghost" size="icon-xs" onMouseDown={handleStartEdit}>
+              <Pencil className="size-3" />
+            </Button>
+            <Button variant="ghost" size="icon-xs" onMouseDown={handleDelete}>
+              <Trash2 className="size-3" />
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+});
+
+// ============================================
+// ActiveAgentBadge Component
+// ============================================
+
+interface ActiveAgentBadgeProps {
+  agent: Agent;
+  onClear: () => void;
+}
+
+const ActiveAgentBadge = memo(function ActiveAgentBadge({
+  agent,
+  onClear,
+}: ActiveAgentBadgeProps) {
+  return (
+    <div className="flex items-center justify-between rounded-md bg-accent/50 px-2 py-1.5">
+      <div className="flex items-center gap-2">
+        <Bot className="size-3.5 text-muted-foreground" />
+        <span className="text-sm font-medium">@{agent.nickname}</span>
+      </div>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        onClick={onClear}
+        title="Clear active agent"
+      >
+        <X className="size-3" />
+      </Button>
+    </div>
+  );
+});
+
+// ============================================
+// AgentList Component
+// ============================================
+
+interface AgentListProps {
+  agents: Agent[];
+  activeAgentId: string | null;
+  newAgentId: string | null;
+  onSelect: (agent: Agent) => void;
+  onUpdateName: (id: string, nickname: string) => void;
+  onDelete: (id: string) => void;
+  onNewAgentEditComplete: () => void;
+}
+
+const AgentList = memo(function AgentList({
+  agents,
+  activeAgentId,
+  newAgentId,
+  onSelect,
+  onUpdateName,
+  onDelete,
+  onNewAgentEditComplete,
+}: AgentListProps) {
+  if (agents.length === 0) {
+    return (
+      <p className="text-center text-xs text-muted-foreground py-2">
+        No agents configured. Click + to create one.
+      </p>
+    );
+  }
+
+  return (
+    <div className="grid gap-1">
+      {agents.map((agent) => (
+        <AgentItem
+          key={agent.id}
+          agent={agent}
+          isActive={activeAgentId === agent.id}
+          onSelect={onSelect}
+          onUpdateName={onUpdateName}
+          onDelete={onDelete}
+          autoEditName={newAgentId === agent.id}
+          onAutoEditComplete={onNewAgentEditComplete}
+        />
+      ))}
+    </div>
+  );
+});
+
+// ============================================
+// SettingsSidebar Component
+// ============================================
 
 interface SettingsSidebarProps {
   config: ChatConfig;
@@ -25,328 +234,129 @@ interface SettingsSidebarProps {
   onToggleOpen: () => void;
   width: number;
   onResizeEnd: (newWidth: number) => void;
+  activeAgentId: string | null;
+  onAgentSelect: (agent: Agent | null) => void;
+  agents: Agent[];
+  onCreateAgent: (agent: Omit<Agent, "id" | "createdAt">) => string;
+  onUpdateAgent: (id: string, updates: Partial<Omit<Agent, "id" | "createdAt">>) => void;
+  onDeleteAgent: (id: string) => void;
+  getAgent: (id: string) => Agent | undefined;
 }
 
-function NumberInput({
-  id,
-  label,
-  hint,
-  value,
-  onChange,
-  min,
-  max,
-  step,
-  placeholder,
-}: {
-  id: string;
-  label: string;
-  hint: string;
-  value: number | null;
-  onChange: (v: number | null) => void;
-  min?: number;
-  max?: number;
-  step?: number;
-  placeholder: string;
-}) {
-  const hasRange = min !== undefined && max !== undefined;
-  const [isDragging, setIsDragging] = useState(false);
-  const [localValue, setLocalValue] = useState(value ?? min ?? 0);
-  const rangeRef = useRef<HTMLInputElement>(null);
-
-  // Touch gesture detection state
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
-  const gestureDecidedRef = useRef<"horizontal" | "vertical" | null>(null);
-  const GESTURE_THRESHOLD = 10; // pixels to determine gesture direction
-
-  // Sync local value with prop when not dragging
-  useEffect(() => {
-    if (!isDragging) {
-      setLocalValue(value ?? min ?? 0);
-    }
-  }, [value, min, isDragging]);
-
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    const touch = e.touches[0];
-    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
-    gestureDecidedRef.current = null;
-  }, []);
-
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!touchStartRef.current || !rangeRef.current) return;
-
-    const touch = e.touches[0];
-    const deltaX = Math.abs(touch.clientX - touchStartRef.current.x);
-    const deltaY = Math.abs(touch.clientY - touchStartRef.current.y);
-
-    // Decide gesture direction if not yet decided
-    if (!gestureDecidedRef.current) {
-      if (deltaX > GESTURE_THRESHOLD || deltaY > GESTURE_THRESHOLD) {
-        gestureDecidedRef.current = deltaX > deltaY ? "horizontal" : "vertical";
-        if (gestureDecidedRef.current === "horizontal") {
-          // Start dragging
-          setIsDragging(true);
-        }
-      }
-    }
-
-    if (gestureDecidedRef.current === "horizontal") {
-      // Calculate value based on touch position
-      e.preventDefault();
-      const rect = rangeRef.current.getBoundingClientRect();
-      const ratio = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
-      const rangeMin = min ?? 0;
-      const rangeMax = max ?? 100;
-      const stepVal = step ?? 1;
-      const rawValue = rangeMin + ratio * (rangeMax - rangeMin);
-      const steppedValue = Math.round(rawValue / stepVal) * stepVal;
-      const clampedValue = Math.max(rangeMin, Math.min(rangeMax, steppedValue));
-      setLocalValue(clampedValue);
-    }
-  }, [min, max, step]);
-
-  const handleTouchEnd = useCallback(() => {
-    if (isDragging) {
-      setIsDragging(false);
-      onChange(localValue);
-    }
-    touchStartRef.current = null;
-    gestureDecidedRef.current = null;
-  }, [isDragging, localValue, onChange]);
-
-  return (
-    <div className="grid min-w-0 gap-2">
-      <div className="flex min-w-0 items-baseline justify-between gap-2">
-        <Label htmlFor={id} className="shrink-0">{label}</Label>
-        <span className="shrink-0 text-xs text-muted-foreground">{hint}</span>
-      </div>
-      <Input
-        id={id}
-        type="number"
-        min={min}
-        max={max}
-        step={step}
-        placeholder={placeholder}
-        value={isDragging ? localValue : (value ?? "")}
-        onChange={(e) => {
-          const v = e.target.value;
-          onChange(v === "" ? null : Number(v));
-        }}
-      />
-      {hasRange && (
-        <div
-          className="px-2 touch-pan-y"
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onTouchCancel={handleTouchEnd}
-        >
-          <input
-            ref={rangeRef}
-            type="range"
-            min={min}
-            max={max}
-            step={step}
-            value={isDragging ? localValue : (value ?? min)}
-            // Desktop: pointer events
-            onPointerDown={(e) => {
-              // Only handle mouse, not touch (touch uses separate handlers)
-              if (e.pointerType !== "touch") {
-                setIsDragging(true);
-              }
-            }}
-            onInput={(e) => {
-              // Desktop: isDragging is set by pointerDown
-              // Mobile: only respond when horizontal gesture is confirmed
-              if (isDragging || gestureDecidedRef.current === "horizontal") {
-                const newValue = Number((e.target as HTMLInputElement).value);
-                setLocalValue(newValue);
-              }
-            }}
-            onPointerUp={(e) => {
-              if (e.pointerType !== "touch" && isDragging) {
-                setIsDragging(false);
-                onChange(localValue);
-              }
-            }}
-            onLostPointerCapture={(e) => {
-              if (e.pointerType !== "touch" && isDragging) {
-                setIsDragging(false);
-                onChange(localValue);
-              }
-            }}
-            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted outline-none pointer-events-auto touch-pan-y
-              [&::-webkit-slider-thumb]:size-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-ring [&::-webkit-slider-thumb]:bg-white
-              [&::-moz-range-thumb]:size-3.5 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-ring [&::-moz-range-thumb]:bg-white
-              [&::-moz-range-progress]:h-1.5 [&::-moz-range-progress]:rounded-full [&::-moz-range-progress]:bg-primary"
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ModelSelectWithMarquee({
-  value,
-  models,
-  onValueChange,
-}: {
-  value: string;
-  models: { id: string; name: string; cost?: { input: number; output: number } }[];
-  onValueChange: (value: string | null) => void;
-}) {
-  const [hovered, setHovered] = useState(false);
-  const selectedModel = models.find((m) => m.id === value);
-  const displayText = selectedModel?.name || "Select a model...";
-
-  return (
-    <div className="grid min-w-0 gap-1.5">
-      <Label>Model</Label>
-      <Select value={value || undefined} onValueChange={onValueChange}>
-        <SelectTrigger
-          className="w-full min-w-0"
-          onMouseEnter={() => setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
-        >
-          <div className="relative min-w-0 flex-1 overflow-hidden text-left">
-            <MarqueeText
-              text={displayText}
-              hovering={hovered}
-              className={!selectedModel ? "text-muted-foreground" : ""}
-            />
-            {/* Gradient fade */}
-            <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-input to-transparent dark:from-input/30" />
-          </div>
-        </SelectTrigger>
-        <SelectContent>
-          {models.map((m) => (
-            <SelectItem key={m.id} value={m.id}>
-              {m.name}
-              {m.cost && (
-                <span className="ml-1 text-xs text-muted-foreground">
-                  ${m.cost.input}/{m.cost.output}
-                </span>
-              )}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
-function ProviderModelSelector({
-  config,
-  onChange,
-}: {
-  config: ChatConfig;
-  onChange: (config: ChatConfig) => void;
-}) {
-  const { providers, providerMap, loading, error, refresh } =
-    useModelsRegistry();
-  const [selectedProvider, setSelectedProvider] = useState("");
-
-  // Sync selectedProvider with config.endpoint
-  useEffect(() => {
-    const matchingProvider = providers.find((p) => p.api === config.endpoint);
-    if (matchingProvider) {
-      setSelectedProvider(matchingProvider.id);
-    } else if (selectedProvider && providerMap.get(selectedProvider)?.api !== config.endpoint) {
-      // Endpoint was manually changed to something not matching any provider
-      setSelectedProvider("");
-    }
-  }, [config.endpoint, providers, providerMap, selectedProvider]);
-
-  const currentProvider: ProviderInfo | undefined =
-    providerMap.get(selectedProvider);
-
-  const handleProviderChange = useCallback((providerId: string | null) => {
-    if (!providerId) return;
-    setSelectedProvider(providerId);
-    const provider = providerMap.get(providerId);
-    if (provider?.api) {
-      onChange({ ...config, endpoint: provider.api, model: "" });
-    }
-  }, [providerMap, onChange, config]);
-
-  const handleModelChange = useCallback((modelId: string | null) => {
-    if (!modelId) return;
-    onChange({ ...config, model: modelId });
-  }, [onChange, config]);
-
-  return (
-    <fieldset className="grid min-w-0 gap-3">
-      <div className="flex min-w-0 items-center justify-between">
-        <legend className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          Model Registry
-        </legend>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={refresh}
-          disabled={loading}
-        >
-          <RefreshCw
-            className={`size-3 ${loading ? "animate-spin" : ""}`}
-          />
-        </Button>
-      </div>
-
-      {error && (
-        <p className="text-xs text-destructive-foreground">
-          Failed to load: {error}
-        </p>
-      )}
-
-      <ModelSearch
-        providers={providers}
-        onSelect={(provider, model) => {
-          setSelectedProvider(provider.id);
-          if (provider.api) {
-            onChange({ ...config, endpoint: provider.api, model: model.id });
-          }
-        }}
-      />
-
-      <div className="grid min-w-0 gap-1.5">
-        <Label>Provider</Label>
-        <Select
-          value={selectedProvider}
-          onValueChange={handleProviderChange}
-        >
-          <SelectTrigger className="w-full min-w-0">
-            <SelectValue placeholder="Select a provider..." />
-          </SelectTrigger>
-          <SelectContent>
-            {providers.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {currentProvider && (
-        <ModelSelectWithMarquee
-          value={config.model}
-          models={currentProvider.models}
-          onValueChange={handleModelChange}
-        />
-      )}
-    </fieldset>
-  );
-}
-
-export function SettingsSidebar({
+export const SettingsSidebar = memo(function SettingsSidebar({
   config,
   onChange,
   isOpen,
   onToggleOpen,
   width,
   onResizeEnd,
+  activeAgentId,
+  onAgentSelect,
+  agents,
+  onCreateAgent,
+  onUpdateAgent,
+  onDeleteAgent,
+  getAgent,
 }: SettingsSidebarProps) {
-  const updateParams = (patch: Partial<InferenceParams>) =>
-    onChange({ ...config, params: { ...config.params, ...patch } });
+  const [newAgentId, setNewAgentId] = useState<string | null>(null);
+
+  // Local optimistic state for immediate UI feedback
+  const [localActiveId, setLocalActiveId] = useState<string | null>(activeAgentId);
+
+  // Sync local state when parent state changes
+  useEffect(() => {
+    setLocalActiveId(activeAgentId);
+  }, [activeAgentId]);
+
+  const activeAgent = localActiveId ? getAgent(localActiveId) : null;
+
+  // Stable refs for callbacks
+  const activeAgentIdRef = useRef(localActiveId);
+  activeAgentIdRef.current = localActiveId;
+  const onUpdateAgentRef = useRef(onUpdateAgent);
+  onUpdateAgentRef.current = onUpdateAgent;
+
+  const handleCreateAgent = useCallback(() => {
+    const id = onCreateAgent({
+      nickname: "new-agent",
+      endpoint: config.endpoint,
+      apiKey: config.apiKey,
+      model: config.model,
+      params: { ...defaultParams },
+    });
+    setNewAgentId(id);
+    // Select the new agent
+    const newAgent = getAgent(id);
+    if (newAgent) {
+      onAgentSelect(newAgent);
+    }
+  }, [onCreateAgent, config.endpoint, config.apiKey, config.model, getAgent, onAgentSelect]);
+
+  const handleSelectAgent = useCallback(
+    (agent: Agent) => {
+      // Immediate local update for instant UI feedback
+      setLocalActiveId(agent.id);
+      // Then update parent state
+      onAgentSelect(agent);
+      onChange({
+        endpoint: agent.endpoint,
+        apiKey: agent.apiKey,
+        model: agent.model,
+        params: agent.params,
+      });
+    },
+    [onChange, onAgentSelect]
+  );
+
+  const handleClearAgent = useCallback(() => {
+    setLocalActiveId(null);
+    onAgentSelect(null);
+  }, [onAgentSelect]);
+
+  // Use refs to stabilize callbacks
+  const onDeleteAgentRef = useRef(onDeleteAgent);
+  onDeleteAgentRef.current = onDeleteAgent;
+  const onAgentSelectRef = useRef(onAgentSelect);
+  onAgentSelectRef.current = onAgentSelect;
+
+  const handleUpdateName = useCallback(
+    (id: string, nickname: string) => {
+      onUpdateAgentRef.current(id, { nickname });
+    },
+    []
+  );
+
+  const handleDeleteAgent = useCallback(
+    (id: string) => {
+      onDeleteAgentRef.current(id);
+      if (activeAgentIdRef.current === id) {
+        setLocalActiveId(null);
+        onAgentSelectRef.current(null);
+      }
+    },
+    []
+  );
+
+  const handleNewAgentEditComplete = useCallback(() => {
+    setNewAgentId(null);
+  }, []);
+
+  // Stable callback that doesn't change when activeAgentId changes
+  const handleConfigChange = useCallback(
+    (newConfig: ChatConfig) => {
+      onChange(newConfig);
+      const currentAgentId = activeAgentIdRef.current;
+      if (currentAgentId) {
+        onUpdateAgentRef.current(currentAgentId, {
+          endpoint: newConfig.endpoint,
+          apiKey: newConfig.apiKey,
+          model: newConfig.model,
+          params: newConfig.params,
+        });
+      }
+    },
+    [onChange]
+  );
 
   return (
     <>
@@ -383,6 +393,7 @@ export function SettingsSidebar({
         style={{ "--settings-sidebar-width": `${width}px` } as React.CSSProperties}
       >
         <ResizeHandle side="right" width={width} onResizeEnd={onResizeEnd} />
+
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b p-2">
           <div className="flex items-center gap-2 px-2">
@@ -397,195 +408,48 @@ export function SettingsSidebar({
         {/* Content */}
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <div className="grid min-w-0 gap-5">
-            {/* Model Registry */}
-            <ProviderModelSelector config={config} onChange={onChange} />
-
-            <hr className="border-border" />
-
-            {/* Connection (manual / override) */}
+            {/* Agent Registry */}
             <fieldset className="grid min-w-0 gap-3">
-              <legend className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Connection
-              </legend>
-              <div className="grid gap-1.5">
-                <Label htmlFor="endpoint">API Endpoint</Label>
-                <Input
-                  id="endpoint"
-                  placeholder="http://localhost:11434/v1"
-                  value={config.endpoint}
-                  onChange={(e) =>
-                    onChange({ ...config, endpoint: e.target.value })
-                  }
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="apiKey">API Key</Label>
-                <Input
-                  id="apiKey"
-                  type="password"
-                  placeholder="sk-..."
-                  value={config.apiKey}
-                  onChange={(e) =>
-                    onChange({ ...config, apiKey: e.target.value })
-                  }
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="model">Model</Label>
-                <Input
-                  id="model"
-                  placeholder="gpt-4o"
-                  value={config.model}
-                  onChange={(e) =>
-                    onChange({ ...config, model: e.target.value })
-                  }
-                />
-              </div>
-            </fieldset>
-
-            <hr className="border-border" />
-
-            {/* System Prompt */}
-            <fieldset className="grid min-w-0 gap-3">
-              <legend className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                System Prompt
-              </legend>
-              <Textarea
-                id="systemPrompt"
-                placeholder="You are a helpful assistant."
-                value={config.params.systemPrompt}
-                onChange={(e) =>
-                  updateParams({ systemPrompt: e.target.value })
-                }
-                rows={3}
-                className="min-h-20"
-              />
-            </fieldset>
-
-            <hr className="border-border" />
-
-            {/* Inference Parameters */}
-            <fieldset className="grid min-w-0 gap-3">
-              <legend className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Inference Parameters
-              </legend>
-              <NumberInput
-                id="temperature"
-                label="Temperature"
-                hint="0 – 2"
-                value={config.params.temperature}
-                onChange={(v) => updateParams({ temperature: v })}
-                min={0}
-                max={2}
-                step={0.1}
-                placeholder="Default"
-              />
-              <NumberInput
-                id="topP"
-                label="Top P"
-                hint="0 – 1"
-                value={config.params.topP}
-                onChange={(v) => updateParams({ topP: v })}
-                min={0}
-                max={1}
-                step={0.05}
-                placeholder="Default"
-              />
-              <NumberInput
-                id="topK"
-                label="Top K"
-                hint="integer"
-                value={config.params.topK}
-                onChange={(v) => updateParams({ topK: v })}
-                min={0}
-                step={1}
-                placeholder="Default"
-              />
-              <NumberInput
-                id="maxTokens"
-                label="Max Tokens"
-                hint="integer"
-                value={config.params.maxTokens}
-                onChange={(v) => updateParams({ maxTokens: v })}
-                min={1}
-                step={1}
-                placeholder="Default"
-              />
-              <NumberInput
-                id="frequencyPenalty"
-                label="Frequency Penalty"
-                hint="-2 – 2"
-                value={config.params.frequencyPenalty}
-                onChange={(v) => updateParams({ frequencyPenalty: v })}
-                min={-2}
-                max={2}
-                step={0.1}
-                placeholder="Default"
-              />
-              <NumberInput
-                id="presencePenalty"
-                label="Presence Penalty"
-                hint="-2 – 2"
-                value={config.params.presencePenalty}
-                onChange={(v) => updateParams({ presencePenalty: v })}
-                min={-2}
-                max={2}
-                step={0.1}
-                placeholder="Default"
-              />
-              <NumberInput
-                id="seed"
-                label="Seed"
-                hint="integer"
-                value={config.params.seed}
-                onChange={(v) => updateParams({ seed: v })}
-                step={1}
-                placeholder="Default"
-              />
-              <div className="grid gap-1.5">
-                <div className="flex items-baseline justify-between">
-                  <Label htmlFor="stop">Stop Sequences</Label>
-                  <span className="text-xs text-muted-foreground">
-                    comma-separated
-                  </span>
-                </div>
-                <Input
-                  id="stop"
-                  placeholder="e.g. \n, END"
-                  value={config.params.stop}
-                  onChange={(e) => updateParams({ stop: e.target.value })}
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <div className="flex items-baseline justify-between">
-                  <Label htmlFor="reasoningEffort">Reasoning Effort</Label>
-                  <span className="text-xs text-muted-foreground">
-                    for o1/o3 models
-                  </span>
-                </div>
-                <Select
-                  value={config.params.reasoningEffort ?? ""}
-                  onValueChange={(v) =>
-                    updateParams({
-                      reasoningEffort: v === "" ? null : (v as ReasoningEffort),
-                    })
-                  }
+              <div className="flex min-w-0 items-center justify-between">
+                <legend className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Agent Registry
+                </legend>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={handleCreateAgent}
                 >
-                  <SelectTrigger id="reasoningEffort" className="w-full">
-                    <SelectValue placeholder="Default" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">Default</SelectItem>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
+                  <Plus className="size-3" />
+                </Button>
               </div>
+
+              {activeAgent && (
+                <ActiveAgentBadge agent={activeAgent} onClear={handleClearAgent} />
+              )}
+
+              <AgentList
+                agents={agents}
+                activeAgentId={localActiveId}
+                newAgentId={newAgentId}
+                onSelect={handleSelectAgent}
+                onUpdateName={handleUpdateName}
+                onDelete={handleDeleteAgent}
+                onNewAgentEditComplete={handleNewAgentEditComplete}
+              />
             </fieldset>
+
+            <hr className="border-border" />
+
+            {/* Config Editor */}
+            <ConfigEditor
+              config={config}
+              onChange={handleConfigChange}
+              showModelRegistry={true}
+              showAdvancedToggle={false}
+            />
           </div>
         </div>
       </aside>
     </>
   );
-}
+});
