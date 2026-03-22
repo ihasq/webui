@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { MarqueeText } from "@/components/ui/marquee-text";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import { Input } from "@/components/ui/input";
@@ -49,6 +49,69 @@ function NumberInput({
   placeholder: string;
 }) {
   const hasRange = min !== undefined && max !== undefined;
+  const [isDragging, setIsDragging] = useState(false);
+  const [localValue, setLocalValue] = useState(value ?? min ?? 0);
+  const rangeRef = useRef<HTMLInputElement>(null);
+
+  // Touch gesture detection state
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const gestureDecidedRef = useRef<"horizontal" | "vertical" | null>(null);
+  const GESTURE_THRESHOLD = 10; // pixels to determine gesture direction
+
+  // Sync local value with prop when not dragging
+  useEffect(() => {
+    if (!isDragging) {
+      setLocalValue(value ?? min ?? 0);
+    }
+  }, [value, min, isDragging]);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    gestureDecidedRef.current = null;
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!touchStartRef.current || !rangeRef.current) return;
+
+    const touch = e.touches[0];
+    const deltaX = Math.abs(touch.clientX - touchStartRef.current.x);
+    const deltaY = Math.abs(touch.clientY - touchStartRef.current.y);
+
+    // Decide gesture direction if not yet decided
+    if (!gestureDecidedRef.current) {
+      if (deltaX > GESTURE_THRESHOLD || deltaY > GESTURE_THRESHOLD) {
+        gestureDecidedRef.current = deltaX > deltaY ? "horizontal" : "vertical";
+        if (gestureDecidedRef.current === "horizontal") {
+          // Start dragging
+          setIsDragging(true);
+        }
+      }
+    }
+
+    if (gestureDecidedRef.current === "horizontal") {
+      // Calculate value based on touch position
+      e.preventDefault();
+      const rect = rangeRef.current.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+      const rangeMin = min ?? 0;
+      const rangeMax = max ?? 100;
+      const stepVal = step ?? 1;
+      const rawValue = rangeMin + ratio * (rangeMax - rangeMin);
+      const steppedValue = Math.round(rawValue / stepVal) * stepVal;
+      const clampedValue = Math.max(rangeMin, Math.min(rangeMax, steppedValue));
+      setLocalValue(clampedValue);
+    }
+  }, [min, max, step]);
+
+  const handleTouchEnd = useCallback(() => {
+    if (isDragging) {
+      setIsDragging(false);
+      onChange(localValue);
+    }
+    touchStartRef.current = null;
+    gestureDecidedRef.current = null;
+  }, [isDragging, localValue, onChange]);
 
   return (
     <div className="grid min-w-0 gap-2">
@@ -63,22 +126,53 @@ function NumberInput({
         max={max}
         step={step}
         placeholder={placeholder}
-        value={value ?? ""}
+        value={isDragging ? localValue : (value ?? "")}
         onChange={(e) => {
           const v = e.target.value;
           onChange(v === "" ? null : Number(v));
         }}
       />
       {hasRange && (
-        <div className="px-2">
+        <div
+          className="px-2 touch-pan-y"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
+        >
           <input
+            ref={rangeRef}
             type="range"
             min={min}
             max={max}
             step={step}
-            value={value ?? min}
-            onChange={(e) => onChange(Number(e.target.value))}
-            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted outline-none
+            value={isDragging ? localValue : (value ?? min)}
+            // Desktop: pointer events
+            onPointerDown={(e) => {
+              // Only handle mouse, not touch (touch uses separate handlers)
+              if (e.pointerType !== "touch") {
+                setIsDragging(true);
+              }
+            }}
+            onInput={(e) => {
+              if (isDragging) {
+                const newValue = Number((e.target as HTMLInputElement).value);
+                setLocalValue(newValue);
+              }
+            }}
+            onPointerUp={(e) => {
+              if (e.pointerType !== "touch" && isDragging) {
+                setIsDragging(false);
+                onChange(localValue);
+              }
+            }}
+            onLostPointerCapture={(e) => {
+              if (e.pointerType !== "touch" && isDragging) {
+                setIsDragging(false);
+                onChange(localValue);
+              }
+            }}
+            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted outline-none pointer-events-auto touch-none
               [&::-webkit-slider-thumb]:size-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-ring [&::-webkit-slider-thumb]:bg-white
               [&::-moz-range-thumb]:size-3.5 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-ring [&::-moz-range-thumb]:bg-white
               [&::-moz-range-progress]:h-1.5 [&::-moz-range-progress]:rounded-full [&::-moz-range-progress]:bg-primary"
