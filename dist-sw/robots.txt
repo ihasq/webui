@@ -1,0 +1,4 @@
+# robots.txt for Chat - AI Chat Interface
+
+User-agent: *
+Allow: /

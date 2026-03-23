@@ -1,9 +1,36 @@
-import { readdirSync, statSync, writeFileSync, readFileSync } from "fs";
+import {
+  readdirSync,
+  statSync,
+  writeFileSync,
+  readFileSync,
+  copyFileSync,
+  renameSync,
+  unlinkSync,
+  existsSync,
+} from "fs";
 import { join, relative } from "path";
 import { createHash } from "crypto";
 import { execSync } from "child_process";
 
 const distDir = join(import.meta.dirname, "../dist");
+const distSwDir = join(import.meta.dirname, "../dist-sw");
+const publicDir = join(import.meta.dirname, "../public");
+
+// Files that should NOT be in the bundle (served individually)
+const INDIVIDUAL_FILES = new Set([
+  "/index.html", // This will be the installer
+  "/sw.js",
+  "/favicon.svg",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/icon-maskable-512.png",
+  "/manifest.json",
+  "/robots.txt",
+  "/og-image.svg",
+  "/icons.svg",
+  "/version.json",
+  "/bundle.tar.zst",
+]);
 
 function getAllFiles(dir, baseDir = dir) {
   const files = [];
@@ -20,47 +47,80 @@ function getAllFiles(dir, baseDir = dir) {
   return files;
 }
 
+// Step 1: Rename Vite's index.html to app.html (this is the React app)
+const viteIndexHtml = join(distDir, "index.html");
+const appHtml = join(distDir, "app.html");
+if (existsSync(viteIndexHtml)) {
+  renameSync(viteIndexHtml, appHtml);
+  console.log("Renamed index.html to app.html (React app entry)");
+}
+
+// Step 2: Copy installer.html to index.html
+const installerSrc = join(publicDir, "installer.html");
+const installerDest = join(distDir, "index.html");
+copyFileSync(installerSrc, installerDest);
+console.log("Copied installer.html to index.html");
+
+// Step 3: Get all files and separate into individual vs bundle
 const allFiles = getAllFiles(distDir);
 
-// Filter out sw.js itself, source maps, version.json, and bundle files
-const assets = allFiles.filter(
-  (f) =>
-    !f.endsWith(".map") &&
-    f !== "/sw.js" &&
-    f !== "/version.json" &&
-    f !== "/bundle.tar.zst"
+const individualFiles = allFiles.filter(
+  (f) => INDIVIDUAL_FILES.has(f) || f.endsWith(".map")
 );
 
-// Generate build ID from content hash of main assets
-const mainAssets = assets.filter(
-  (f) => f.endsWith(".js") || f.endsWith(".css") || f === "/index.html"
+const bundleFiles = allFiles.filter(
+  (f) => !INDIVIDUAL_FILES.has(f) && !f.endsWith(".map") && f !== "/app.html"
+);
+
+// Add app.html to bundle files (renamed from index.html)
+// In the bundle, it will be stored as /index.html so the SW can serve it
+const bundleFilesWithAppHtml = [...bundleFiles];
+// We'll handle app.html -> index.html rename in tar command
+
+console.log(`Individual files: ${individualFiles.length}`);
+console.log(`Bundle files: ${bundleFilesWithAppHtml.length + 1} (including app.html as index.html)`);
+
+// Step 4: Generate build ID from content hash of main assets
+const mainAssets = bundleFilesWithAppHtml.filter(
+  (f) => f.endsWith(".js") || f.endsWith(".css")
 );
 const hashContent = mainAssets
   .map((f) => readFileSync(join(distDir, f.slice(1))))
   .join("");
-const buildHash = createHash("sha256").update(hashContent).digest("hex").slice(0, 12);
+const appHtmlContent = readFileSync(appHtml);
+const fullHashContent = hashContent + appHtmlContent;
+const buildHash = createHash("sha256")
+  .update(fullHashContent)
+  .digest("hex")
+  .slice(0, 12);
 const buildTime = Date.now();
 const buildId = `${buildHash}-${buildTime}`;
 
-// Generate bundle.tar.zst
+// Step 5: Generate bundle.tar.zst
 let bundleInfo = null;
 try {
-  // Check if zstd is available
   execSync("which zstd", { stdio: "ignore" });
 
-  // Create tar archive and compress with zstd level 22
-  // Use relative paths from dist directory
-  const tarFiles = assets.map((f) => f.slice(1)).join(" ");
-  execSync(`tar -cf - ${tarFiles} | zstd --ultra -22 -o bundle.tar.zst`, {
-    cwd: distDir,
-    stdio: "inherit",
-  });
+  // Create file list for tar, renaming app.html to index.html
+  // We use --transform to rename app.html to index.html in the archive
+  const tarFilesList = bundleFilesWithAppHtml.map((f) => f.slice(1)).join(" ");
 
-  // Get bundle size and hash
+  // Create tar with app.html renamed to index.html
+  execSync(
+    `tar -cf - --transform='s/^app\\.html$/index.html/' app.html ${tarFilesList} | zstd --ultra -22 -o bundle.tar.zst`,
+    {
+      cwd: distDir,
+      stdio: "inherit",
+    }
+  );
+
   const bundlePath = join(distDir, "bundle.tar.zst");
   const bundleData = readFileSync(bundlePath);
   const bundleSize = bundleData.length;
-  const bundleHash = createHash("sha256").update(bundleData).digest("hex").slice(0, 16);
+  const bundleHash = createHash("sha256")
+    .update(bundleData)
+    .digest("hex")
+    .slice(0, 16);
 
   bundleInfo = {
     url: "/bundle.tar.zst",
@@ -75,7 +135,7 @@ try {
   console.warn("zstd not available, skipping bundle generation:", err.message);
 }
 
-// Generate version.json
+// Step 6: Generate version.json
 const versionInfo = {
   buildId,
   buildHash,
@@ -83,25 +143,39 @@ const versionInfo = {
   buildDate: new Date(buildTime).toISOString(),
   ...(bundleInfo && { bundle: bundleInfo }),
 };
-writeFileSync(join(distDir, "version.json"), JSON.stringify(versionInfo, null, 2));
+writeFileSync(
+  join(distDir, "version.json"),
+  JSON.stringify(versionInfo, null, 2)
+);
 console.log(`Generated version.json with buildId: ${buildId}`);
 
-const swTemplate = readFileSync(
-  join(import.meta.dirname, "../public/sw.js"),
-  "utf-8"
-);
+// Step 7: Copy and update sw.js from dist-sw
+const swSrc = join(distSwDir, "sw.js");
+if (existsSync(swSrc)) {
+  let swContent = readFileSync(swSrc, "utf-8");
 
-// Replace the PRECACHE_ASSETS array with the generated list
-const swContent = swTemplate.replace(
-  /const PRECACHE_ASSETS = \[[\s\S]*?\];/,
-  `const PRECACHE_ASSETS = ${JSON.stringify(assets, null, 2)};`
-);
+  // Replace placeholders (these are quoted strings that survive minification)
+  swContent = swContent
+    .replace(/%%BUILD_ID%%/g, buildId)
+    .replace(/%%BUNDLE_INFO%%/g, JSON.stringify(bundleInfo));
 
-// Update cache version based on build hash
-const cacheVersion = Date.now(); // Use timestamp for DB version
-const finalContent = swContent
-  .replace(/const CACHE_VERSION = \d+;/, `const CACHE_VERSION = ${cacheVersion};`)
-  .replace(/const BUILD_ID = ".*?";/, `const BUILD_ID = "${buildId}";`);
+  writeFileSync(join(distDir, "sw.js"), swContent);
+  console.log("Generated sw.js with bundle extractor");
+} else {
+  console.error("ERROR: dist-sw/sw.js not found. Run vite build --config vite.sw.config.ts first.");
+  process.exit(1);
+}
 
-writeFileSync(join(distDir, "sw.js"), finalContent);
-console.log(`Generated sw.js with ${assets.length} assets to precache`);
+// Step 8: Cleanup - remove files that are only needed in bundle
+const filesToRemove = [
+  join(distDir, "app.html"),
+  join(distDir, "installer.html"),
+];
+for (const file of filesToRemove) {
+  if (existsSync(file)) {
+    unlinkSync(file);
+  }
+}
+console.log("Cleaned up intermediate files");
+
+console.log("Build complete!");

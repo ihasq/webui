@@ -1,8 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import {
-  applyBundleUpdate,
-  isBundleUpdateSupported,
-} from "@/lib/bundle-updater";
 
 interface BundleInfo {
   url: string;
@@ -18,22 +14,12 @@ interface VersionInfo {
   bundle?: BundleInfo;
 }
 
-interface UpdateProgress {
-  phase: "downloading" | "extracting" | "complete" | "error";
-  downloaded?: number;
-  total?: number;
-  filesExtracted?: number;
-  error?: string;
-}
-
 interface UpdateState {
   checking: boolean;
   updateAvailable: boolean;
   applying: boolean;
   currentBuildId: string | null;
   latestBuildId: string | null;
-  latestVersion: VersionInfo | null;
-  progress: UpdateProgress | null;
   error: string | null;
 }
 
@@ -53,26 +39,6 @@ async function getCurrentBuildId(): Promise<string | null> {
       resolve(event.data?.buildId ?? null);
     };
     sw.postMessage({ type: "GET_BUILD_ID" }, [channel.port2]);
-    // Timeout after 1 second
-    setTimeout(() => resolve(null), 1000);
-  });
-}
-
-/**
- * Get the cache version from the active Service Worker
- */
-async function getCacheVersion(): Promise<number | null> {
-  const registration = await navigator.serviceWorker?.ready;
-  const sw = registration?.active;
-  if (!sw) return null;
-
-  return new Promise((resolve) => {
-    const channel = new MessageChannel();
-    channel.port1.onmessage = (event) => {
-      resolve(event.data?.cacheVersion ?? null);
-    };
-    sw.postMessage({ type: "GET_CACHE_VERSION" }, [channel.port2]);
-    // Timeout after 1 second
     setTimeout(() => resolve(null), 1000);
   });
 }
@@ -103,8 +69,6 @@ export function useUpdateChecker() {
     applying: false,
     currentBuildId: null,
     latestBuildId: null,
-    latestVersion: null,
-    progress: null,
     error: null,
   });
 
@@ -113,7 +77,6 @@ export function useUpdateChecker() {
   const reloadingRef = useRef(false);
 
   const checkForUpdate = useCallback(async () => {
-    // Prevent concurrent checks
     if (checkingRef.current) return;
     if (!navigator.onLine) return;
 
@@ -146,7 +109,6 @@ export function useUpdateChecker() {
         updateAvailable,
         currentBuildId,
         latestBuildId,
-        latestVersion,
         error: null,
       }));
 
@@ -169,50 +131,8 @@ export function useUpdateChecker() {
   const applyUpdate = useCallback(async () => {
     if (state.applying) return;
 
-    setState((s) => ({ ...s, applying: true, progress: null }));
+    setState((s) => ({ ...s, applying: true }));
 
-    const { latestVersion } = state;
-
-    // Try bundle update if available and supported
-    if (
-      latestVersion?.bundle &&
-      isBundleUpdateSupported()
-    ) {
-      try {
-        // Get cache version for IndexedDB
-        const cacheVersion = await getCacheVersion();
-        if (!cacheVersion) {
-          throw new Error("Could not get cache version from service worker");
-        }
-
-        const success = await applyBundleUpdate(
-          latestVersion.bundle,
-          cacheVersion,
-          (progress) => {
-            setState((s) => ({ ...s, progress }));
-          }
-        );
-
-        if (success) {
-          // Bundle update successful, tell SW to skip waiting and reload
-          const registration = await navigator.serviceWorker?.ready;
-          const waiting = registration?.waiting;
-
-          if (waiting) {
-            waiting.postMessage({ type: "SKIP_WAITING" });
-          } else {
-            // No waiting SW, just reload
-            reloadingRef.current = true;
-            window.location.reload();
-          }
-          return;
-        }
-      } catch (err) {
-        console.warn("Bundle update failed, falling back to legacy update:", err);
-      }
-    }
-
-    // Legacy update: just reload to fetch new assets individually
     const registration = await navigator.serviceWorker?.ready;
     const waiting = registration?.waiting;
 
@@ -225,7 +145,7 @@ export function useUpdateChecker() {
       reloadingRef.current = true;
       window.location.reload();
     }
-  }, [state.applying, state.latestVersion]);
+  }, [state.applying]);
 
   const dismissUpdate = useCallback(() => {
     setState((s) => ({ ...s, updateAvailable: false }));
@@ -233,17 +153,13 @@ export function useUpdateChecker() {
 
   // Check on mount and when coming online
   useEffect(() => {
-    // Initial check after a short delay
     const initialTimeout = setTimeout(checkForUpdate, 2000);
 
-    // Check when coming back online
     const handleOnline = () => {
       checkForUpdate();
     };
 
     window.addEventListener("online", handleOnline);
-
-    // Periodic check
     intervalRef.current = setInterval(checkForUpdate, CHECK_INTERVAL);
 
     return () => {
@@ -258,11 +174,8 @@ export function useUpdateChecker() {
   // Listen for SW controller change (new SW activated)
   useEffect(() => {
     const handleControllerChange = () => {
-      // Prevent double reload
       if (reloadingRef.current) return;
       reloadingRef.current = true;
-
-      // New SW has taken over, reload to get fresh assets
       window.location.reload();
     };
 
