@@ -7,6 +7,7 @@ import {
   renameSync,
   unlinkSync,
   existsSync,
+  rmSync,
 } from "fs";
 import { join, relative } from "path";
 import { createHash } from "crypto";
@@ -191,6 +192,23 @@ for (const file of filesToRemove) {
     unlinkSync(file);
   }
 }
+
+// Remove bundled assets (they're now in bundle.tar.zst)
+if (bundleInfo) {
+  for (const bundleFile of bundleFilesWithAppHtml) {
+    const filePath = join(distDir, bundleFile.slice(1));
+    if (existsSync(filePath)) {
+      unlinkSync(filePath);
+    }
+  }
+  // Remove empty assets directory if it exists
+  const assetsDir = join(distDir, "assets");
+  if (existsSync(assetsDir)) {
+    rmSync(assetsDir, { recursive: true });
+  }
+  console.log("Cleaned up bundled files from dist/");
+}
+
 console.log("Cleaned up intermediate files");
 
 console.log("Build complete!");
