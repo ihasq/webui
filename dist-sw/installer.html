@@ -98,14 +98,24 @@
     <script>
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/sw.js').then(reg => {
-          // If SW is already active and has the app cached, reload to get it
-          if (reg.active) {
+          // If SW is already controlling this page, reload to get cached app
+          if (navigator.serviceWorker.controller) {
             location.reload();
             return;
           }
+
           // Listen for app ready message from SW
           navigator.serviceWorker.addEventListener('message', e => {
-            if (e.data?.type === 'APP_READY') location.reload();
+            if (e.data?.type === 'APP_READY') {
+              // Wait for SW to control this page before reloading
+              if (navigator.serviceWorker.controller) {
+                location.reload();
+              } else {
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                  location.reload();
+                });
+              }
+            }
           });
         });
       }

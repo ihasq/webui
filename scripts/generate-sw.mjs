@@ -97,28 +97,103 @@ const buildHash = createHash("sha256")
 const buildTime = Date.now();
 const buildId = `${buildHash}-${buildTime}`;
 
-// Step 5: Generate bundle.tar.zst with optimized file order
-// Order: index.html first (for immediate display), then main JS/CSS, then other assets
+// Step 5: Generate bundle.tar.zst with dependency-ordered files
+// Analyze JS imports to determine optimal load order
 let bundleInfo = null;
 try {
   execSync("which zstd", { stdio: "ignore" });
 
-  // Separate files by priority for optimal streaming load order
-  const mainJsCss = bundleFilesWithAppHtml.filter(
-    (f) => f.match(/^\/assets\/main-[^/]+\.(js|css)$/)
-  );
-  const otherAssets = bundleFilesWithAppHtml.filter(
-    (f) => !f.match(/^\/assets\/main-[^/]+\.(js|css)$/)
-  );
+  // Parse app.html to find entry scripts
+  const appHtmlStr = readFileSync(appHtml, "utf-8");
+  const scriptMatches = appHtmlStr.matchAll(/src="([^"]+\.js)"/g);
+  const entryScripts = [...scriptMatches].map((m) => m[1].replace(/^\//, ""));
 
-  // Build ordered file list: app.html (becomes index.html) → main JS/CSS → other assets
+  // Parse CSS links from app.html
+  const cssMatches = appHtmlStr.matchAll(/href="([^"]+\.css)"/g);
+  const entryCss = [...cssMatches].map((m) => m[1].replace(/^\//, ""));
+
+  // Build dependency graph for JS files
+  function extractImports(filePath) {
+    const content = readFileSync(filePath, "utf-8");
+    const imports = new Set();
+
+    // Match: import("./chunk-xxx.js") or import('./chunk-xxx.js')
+    const dynamicImports = content.matchAll(/import\s*\(\s*["']\.\/([^"']+)["']\s*\)/g);
+    for (const m of dynamicImports) {
+      imports.add("assets/" + m[1]);
+    }
+
+    // Match: from"./chunk-xxx.js" or from'./chunk-xxx.js' (minified static imports)
+    const staticImports = content.matchAll(/from\s*["']\.\/([^"']+)["']/g);
+    for (const m of staticImports) {
+      imports.add("assets/" + m[1]);
+    }
+
+    // Match: import"./chunk-xxx.js" (minified)
+    const minifiedImports = content.matchAll(/import\s*["']\.\/([^"']+)["']/g);
+    for (const m of minifiedImports) {
+      imports.add("assets/" + m[1]);
+    }
+
+    return imports;
+  }
+
+  // Build full dependency graph
+  const depGraph = new Map(); // file -> Set of dependencies
+  const jsFiles = bundleFilesWithAppHtml.filter((f) => f.endsWith(".js"));
+
+  for (const file of jsFiles) {
+    const filePath = join(distDir, file.slice(1));
+    const deps = extractImports(filePath);
+    depGraph.set(file.slice(1), deps); // Remove leading /
+  }
+
+  // Topological sort with BFS (breadth-first for load order)
+  function getLoadOrder(entryPoints) {
+    const ordered = [];
+    const visited = new Set();
+    const queue = [...entryPoints];
+
+    while (queue.length > 0) {
+      const file = queue.shift();
+      if (visited.has(file)) continue;
+      visited.add(file);
+      ordered.push(file);
+
+      const deps = depGraph.get(file) || new Set();
+      for (const dep of deps) {
+        if (!visited.has(dep)) {
+          queue.push(dep);
+        }
+      }
+    }
+
+    return ordered;
+  }
+
+  // Get ordered JS files starting from entry points
+  const orderedJs = getLoadOrder(entryScripts);
+
+  // Add any remaining JS files not reached by dependency analysis
+  const remainingJs = jsFiles
+    .map((f) => f.slice(1))
+    .filter((f) => !orderedJs.includes(f));
+
+  // Separate non-JS files
+  const nonJsFiles = bundleFilesWithAppHtml
+    .filter((f) => !f.endsWith(".js"))
+    .map((f) => f.slice(1));
+
+  // Final order: app.html → entry CSS → ordered JS → remaining JS → other files
   const orderedFiles = [
     "app.html",
-    ...mainJsCss.map((f) => f.slice(1)),
-    ...otherAssets.map((f) => f.slice(1)),
+    ...entryCss,
+    ...orderedJs,
+    ...remainingJs,
+    ...nonJsFiles.filter((f) => !entryCss.includes(f)),
   ];
 
-  console.log(`Tar order: app.html (→index.html), ${mainJsCss.length} main assets, ${otherAssets.length} other files`);
+  console.log(`Dependency analysis: ${entryScripts.length} entry scripts, ${orderedJs.length} ordered JS, ${remainingJs.length} remaining JS`);
 
   // Create tar with app.html renamed to index.html
   const tarFilesList = orderedFiles.join(" ");

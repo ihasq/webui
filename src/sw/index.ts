@@ -8,7 +8,7 @@
 /// <reference lib="webworker" />
 
 import { get, set, createStore } from "idb-keyval";
-import { extractBundleStreaming, getCachedAsset } from "./bundle-extractor";
+import { extractBundleStreaming, getCachedAsset, updateCachedAssetCompressed } from "./bundle-extractor";
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -16,14 +16,39 @@ declare const self: ServiceWorkerGlobalScope;
 const BUILD_ID: string = "%%BUILD_ID%%";
 const BUNDLE_INFO: { url: string; size: number; hash: string } | null = JSON.parse("%%BUNDLE_INFO%%");
 
-// Meta store for build tracking
-const metaStore = createStore("asset-cache", "meta");
+// Meta store for build tracking (separate DB from assets)
+const metaStore = createStore("sw-meta", "store");
+
+// Flag to indicate index.html is ready and clients should be notified on activate
+let indexHtmlReady = false;
+
+// Flag to indicate extraction is complete
+let extractionComplete = false;
+
+/**
+ * Wait for an asset to be extracted (polling with timeout)
+ */
+async function waitForAsset(
+  pathname: string,
+  maxWaitMs: number = 30000,
+  intervalMs: number = 50
+): Promise<{ blob: Blob; contentType: string; compressed: boolean } | undefined> {
+  const startTime = Date.now();
+  while (Date.now() - startTime < maxWaitMs) {
+    const cached = await getCachedAsset(pathname);
+    if (cached) return cached;
+    if (extractionComplete) return undefined; // Extraction done but file not found
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return undefined; // Timeout
+}
 
 /**
  * Notify all clients that app is ready
  */
 async function notifyAppReady() {
-  const clients = await self.clients.matchAll();
+  // includeUncontrolled: true is required during install phase
+  const clients = await self.clients.matchAll({ includeUncontrolled: true, type: "window" });
   for (const client of clients) {
     client.postMessage({ type: "APP_READY" });
   }
@@ -56,28 +81,32 @@ self.addEventListener("install", (event: ExtendableEvent) => {
         // Check if already extracted with same build
         const installedBuild = await get("buildId", metaStore);
         if (installedBuild === BUILD_ID) {
-          console.log("[SW] Bundle already extracted for this build");
           self.skipWaiting();
           return;
         }
 
         // Extract bundle with streaming
         if (BUNDLE_INFO) {
-          await extractBundleStreaming(BUNDLE_INFO, async (path) => {
-            // When index.html is ready, notify clients immediately
-            if (path === "/index.html") {
-              await notifyAppReady();
-            }
+          // Use a promise that resolves when index.html is ready
+          await new Promise<void>((resolveInstall) => {
+            // Start extraction - don't await the full process
+            extractBundleStreaming(BUNDLE_INFO, async (path) => {
+              // When index.html (app entry) is ready, complete install
+              if (path === "/index.html") {
+                indexHtmlReady = true;
+                resolveInstall();
+              }
+            }).then(async () => {
+              // This runs in background after install completes
+              extractionComplete = true;
+              await set("buildId", BUILD_ID, metaStore);
+            });
           });
 
-          // Store build ID
-          await set("buildId", BUILD_ID, metaStore);
-          console.log("[SW] Bundle extraction complete");
-        } else {
-          console.warn("[SW] No bundle info available");
+          // Skip waiting to activate immediately after index.html is ready
+          self.skipWaiting();
         }
       } catch (err) {
-        console.error("[SW] Installation failed:", err);
         throw err;
       }
 
@@ -87,10 +116,19 @@ self.addEventListener("install", (event: ExtendableEvent) => {
 });
 
 /**
- * Activate event: Claim all clients
+ * Activate event: Claim all clients and notify if index.html is ready
  */
 self.addEventListener("activate", (event: ExtendableEvent) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      await self.clients.claim();
+
+      // If index.html was extracted during install, notify clients
+      if (indexHtmlReady) {
+        await notifyAppReady();
+      }
+    })()
+  );
 });
 
 /**
@@ -103,6 +141,34 @@ self.addEventListener("message", (event: ExtendableMessageEvent) => {
     self.skipWaiting();
   }
 });
+
+/**
+ * Compress blob in background and update cache
+ */
+function compressInBackground(pathname: string, blob: Blob, contentType: string): void {
+  // Skip compression for already-compressed formats
+  if (
+    contentType.startsWith("image/") ||
+    contentType.startsWith("video/") ||
+    contentType.startsWith("audio/") ||
+    contentType.includes("font/")
+  ) {
+    return;
+  }
+
+  const chunks: BlobPart[] = [];
+
+  // Compress and update cache asynchronously
+  blob.stream()
+    .pipeThrough(new CompressionStream("gzip"))
+    .pipeTo(new WritableStream({
+      write(chunk) { chunks.push(chunk); },
+      close() {
+        const compressedBlob = new Blob(chunks);
+        updateCachedAssetCompressed(pathname, compressedBlob, contentType);
+      }
+    }));
+}
 
 /**
  * Fetch event: Serve from cache, fallback to network
@@ -128,15 +194,30 @@ self.addEventListener("fetch", (event: FetchEvent) => {
 
       try {
         // Try to get from cache first
-        const cached = await getCachedAsset(pathname);
-        if (cached) {
-          return decompressResponse(cached.blob, cached.contentType, cached.compressed);
+        let cached = await getCachedAsset(pathname);
+
+        // If not in cache and extraction is ongoing, wait for it
+        if (!cached && !extractionComplete && pathname.startsWith("/assets/")) {
+          cached = await waitForAsset(pathname);
         }
-      } catch (err) {
-        console.warn("[SW] Cache read failed:", err);
+
+        if (cached) {
+          if (cached.compressed) {
+            // Already compressed, decompress and serve
+            return decompressResponse(cached.blob, cached.contentType, true);
+          } else {
+            // Not compressed yet - serve directly and compress in background
+            compressInBackground(pathname, cached.blob, cached.contentType);
+            return new Response(cached.blob, {
+              headers: { "Content-Type": cached.contentType },
+            });
+          }
+        }
+      } catch {
+        // Cache read failed, fall through to network
       }
 
-      // Not in cache, try network
+      // Not in cache and extraction complete, try network
       try {
         const response = await fetch(event.request);
         return response;

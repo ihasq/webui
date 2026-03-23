@@ -21,8 +21,8 @@ interface TarStreamEntry {
 
 type ProgressCallback = (phase: string, progress?: number) => void;
 
-// Create a custom store for asset cache
-const assetStore = createStore("asset-cache", "assets");
+// Create a custom store for asset cache (separate DB from meta)
+const assetStore = createStore("sw-assets", "store");
 
 /**
  * Get content type from file path
@@ -223,7 +223,8 @@ export async function isBundleExtracted(): Promise<boolean> {
 
 /**
  * Streaming bundle extraction - extracts files as they arrive
- * Calls onFileReady callback for each file as it's stored
+ * Stores files UNCOMPRESSED for fast initial display
+ * Compression happens later when serving via fetch
  */
 export async function extractBundleStreaming(
   bundleInfo: BundleInfo,
@@ -255,21 +256,10 @@ export async function extractBundleStreaming(
       const fileData = await readStream(tarEntry.readable);
       const path = "/" + tarEntry.path;
       const contentType = getContentType(path);
-      const skipCompression = shouldSkipCompression(contentType);
 
-      let blob: Blob;
-      let compressed: boolean;
-
-      if (skipCompression || typeof CompressionStream === "undefined") {
-        blob = new Blob([new Uint8Array(fileData)]);
-        compressed = false;
-      } else {
-        blob = await compressWithGzip(fileData);
-        compressed = true;
-      }
-
-      // Store in IndexedDB
-      await set(path, { blob, contentType, compressed }, assetStore);
+      // Store UNCOMPRESSED for fast extraction
+      const blob = new Blob([new Uint8Array(fileData)]);
+      await set(path, { blob, contentType, compressed: false }, assetStore);
       filesExtracted++;
 
       // Notify that this file is ready
@@ -282,4 +272,15 @@ export async function extractBundleStreaming(
   }
 
   return filesExtracted;
+}
+
+/**
+ * Update cached asset with compressed version (called after serving)
+ */
+export async function updateCachedAssetCompressed(
+  path: string,
+  blob: Blob,
+  contentType: string
+): Promise<void> {
+  await set(path, { blob, contentType, compressed: true }, assetStore);
 }
