@@ -293,6 +293,9 @@ export function ConfigEditor({
   const { providers, providerMap, loading, error, refresh } = useModelsRegistry();
   const [showAdvanced, setShowAdvanced] = useState(!showAdvancedToggle);
 
+  // Track if endpoint was manually edited (vs selected from registry)
+  const [isCustomEndpoint, setIsCustomEndpoint] = useState(false);
+
   // Search mode state
   const [searchMode, setSearchMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -315,10 +318,12 @@ export function ConfigEditor({
 
   // Derive selectedProvider and currentProvider directly from config.endpoint (no extra render cycle)
   const currentProvider = useMemo(() => {
+    // If endpoint was manually edited, don't match against registry
+    if (isCustomEndpoint) return undefined;
     return providers.find((p) => p.api === config.endpoint);
-  }, [providers, config.endpoint]);
+  }, [providers, config.endpoint, isCustomEndpoint]);
 
-  const selectedProvider = currentProvider?.id ?? "";
+  const selectedProvider = isCustomEndpoint ? "custom" : (currentProvider?.id ?? "");
 
   const updateParams = useCallback(
     (patch: Partial<InferenceParams>) => {
@@ -330,8 +335,13 @@ export function ConfigEditor({
   const handleProviderChange = useCallback(
     (providerId: string | null) => {
       if (!providerId) return;
+      if (providerId === "custom") {
+        setIsCustomEndpoint(true);
+        return;
+      }
       const provider = providerMap.get(providerId);
       if (provider?.api) {
+        setIsCustomEndpoint(false);
         onChange({ ...config, endpoint: provider.api, model: "" });
       }
     },
@@ -349,6 +359,7 @@ export function ConfigEditor({
   const handleModelSearchSelect = useCallback(
     (provider: ProviderInfo, model: { id: string }) => {
       if (provider.api) {
+        setIsCustomEndpoint(false);
         onChange({ ...config, endpoint: provider.api, model: model.id });
       }
       // Close search mode after selection
@@ -563,6 +574,7 @@ export function ConfigEditor({
                   <SelectValue placeholder="Select a provider..." />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="custom">Custom</SelectItem>
                   {providers.map((p) => (
                     <SelectItem key={p.id} value={p.id}>
                       {p.name}
@@ -576,7 +588,7 @@ export function ConfigEditor({
               value={config.model}
               models={currentProvider?.models ?? []}
               onValueChange={handleModelChange}
-              disabled={!currentProvider}
+              disabled={!currentProvider || isCustomEndpoint}
             />
           </fieldset>
 
@@ -586,7 +598,7 @@ export function ConfigEditor({
 
       {/* Connection */}
       <fieldset className="grid min-w-0 gap-3">
-        <legend className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+        <legend className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
           Connection
         </legend>
         <div className="grid gap-1.5">
@@ -595,7 +607,10 @@ export function ConfigEditor({
             id="cfg-endpoint"
             placeholder="http://localhost:11434/v1"
             value={config.endpoint}
-            onChange={(e) => onChange({ ...config, endpoint: e.target.value })}
+            onChange={(e) => {
+              setIsCustomEndpoint(true);
+              onChange({ ...config, endpoint: e.target.value });
+            }}
           />
         </div>
         <div className="grid gap-1.5">
@@ -623,7 +638,7 @@ export function ConfigEditor({
 
       {/* System Prompt */}
       <fieldset className="grid min-w-0 gap-3">
-        <legend className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+        <legend className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
           System Prompt
         </legend>
         <Textarea
@@ -643,7 +658,7 @@ export function ConfigEditor({
         {showAdvancedToggle ? (
           <button
             type="button"
-            className="flex items-center gap-1 text-xs font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground"
+            className="mb-2 flex items-center gap-1 text-xs font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground"
             onClick={() => setShowAdvanced(!showAdvanced)}
           >
             {showAdvanced ? (
@@ -654,13 +669,37 @@ export function ConfigEditor({
             Inference Parameters
           </button>
         ) : (
-          <legend className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          <legend className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
             Inference Parameters
           </legend>
         )}
 
         {showAdvanced && (
           <div className={`grid gap-3 ${showAdvancedToggle ? "rounded-md border p-3" : ""}`}>
+            <div className="grid gap-1.5">
+              <div className="flex items-baseline justify-between">
+                <Label htmlFor="cfg-reasoningEffort">Reasoning Effort</Label>
+                <span className="text-xs text-muted-foreground">for o1/o3 models</span>
+              </div>
+              <Select
+                value={config.params.reasoningEffort ?? ""}
+                onValueChange={(v) =>
+                  updateParams({
+                    reasoningEffort: v === "" ? null : (v as ReasoningEffort),
+                  })
+                }
+              >
+                <SelectTrigger id="cfg-reasoningEffort" className="w-full">
+                  <SelectValue placeholder="Default" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Default</SelectItem>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <NumberInput
               id="cfg-temperature"
               label="Temperature"
@@ -745,30 +784,6 @@ export function ConfigEditor({
                 value={config.params.stop}
                 onChange={(e) => updateParams({ stop: e.target.value })}
               />
-            </div>
-            <div className="grid gap-1.5">
-              <div className="flex items-baseline justify-between">
-                <Label htmlFor="cfg-reasoningEffort">Reasoning Effort</Label>
-                <span className="text-xs text-muted-foreground">for o1/o3 models</span>
-              </div>
-              <Select
-                value={config.params.reasoningEffort ?? ""}
-                onValueChange={(v) =>
-                  updateParams({
-                    reasoningEffort: v === "" ? null : (v as ReasoningEffort),
-                  })
-                }
-              >
-                <SelectTrigger id="cfg-reasoningEffort" className="w-full">
-                  <SelectValue placeholder="Default" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">Default</SelectItem>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
           </div>
         )}
