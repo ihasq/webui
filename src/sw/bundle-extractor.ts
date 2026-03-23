@@ -19,8 +19,6 @@ interface TarStreamEntry {
   readable?: ReadableStream<Uint8Array>;
 }
 
-type ProgressCallback = (phase: string, progress?: number) => void;
-
 // Create a custom store for asset cache (separate DB from meta)
 const assetStore = createStore("sw-assets", "store");
 
@@ -55,34 +53,6 @@ function getContentType(path: string): string {
 }
 
 /**
- * Check if content type should skip compression
- */
-function shouldSkipCompression(contentType: string): boolean {
-  return (
-    contentType.startsWith("image/") ||
-    contentType.startsWith("video/") ||
-    contentType.startsWith("audio/") ||
-    contentType.includes("font/") ||
-    contentType.includes("application/zip") ||
-    contentType.includes("application/gzip")
-  );
-}
-
-/**
- * Compress data with gzip
- */
-async function compressWithGzip(data: Uint8Array): Promise<Blob> {
-  const stream = new ReadableStream({
-    start(controller) {
-      controller.enqueue(data);
-      controller.close();
-    },
-  });
-  const compressedStream = stream.pipeThrough(new CompressionStream("gzip"));
-  return new Response(compressedStream).blob();
-}
-
-/**
  * Read all data from a ReadableStream
  */
 async function readStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
@@ -106,101 +76,6 @@ async function readStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Arra
 }
 
 /**
- * Download and extract bundle.tar.zst, storing files in IndexedDB
- */
-export async function extractBundle(
-  bundleInfo: BundleInfo,
-  onProgress?: ProgressCallback
-): Promise<number> {
-  onProgress?.("Downloading bundle...", 0);
-
-  // Download the bundle with progress tracking
-  const response = await fetch(bundleInfo.url, { cache: "no-store" });
-  if (!response.ok || !response.body) {
-    throw new Error(`Failed to download bundle: ${response.status}`);
-  }
-
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let downloaded = 0;
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    downloaded += value.length;
-    const progress = Math.round((downloaded / bundleInfo.size) * 50); // 0-50%
-    onProgress?.("Downloading bundle...", progress);
-  }
-
-  // Combine chunks
-  const bundleData = new Uint8Array(downloaded);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bundleData.set(chunk, offset);
-    offset += chunk.length;
-  }
-
-  onProgress?.("Extracting files...", 50);
-
-  // Create a readable stream from the bundle data
-  const bundleStream = new ReadableStream({
-    start(controller) {
-      controller.enqueue(bundleData);
-      controller.close();
-    },
-  });
-
-  // Decompress with zstd and extract tar
-  const decompressedStream = bundleStream.pipeThrough(
-    new ZstdDecompressionStream()
-  );
-  const tarStream = decompressedStream.pipeThrough(new UntarStream());
-  const tarReader = tarStream.getReader();
-
-  let filesExtracted = 0;
-  const totalEstimatedFiles = 500; // Rough estimate for progress
-
-  while (true) {
-    const { done, value: entry } = await tarReader.read();
-    if (done) break;
-
-    const tarEntry = entry as TarStreamEntry;
-    const typeflag = tarEntry.header.typeflag ?? "0";
-
-    if ((typeflag === "0" || typeflag === "") && tarEntry.readable) {
-      const fileData = await readStream(tarEntry.readable);
-      const path = "/" + tarEntry.path;
-      const contentType = getContentType(path);
-      const skipCompression = shouldSkipCompression(contentType);
-
-      let blob: Blob;
-      let compressed: boolean;
-
-      if (skipCompression || typeof CompressionStream === "undefined") {
-        blob = new Blob([new Uint8Array(fileData)]);
-        compressed = false;
-      } else {
-        blob = await compressWithGzip(fileData);
-        compressed = true;
-      }
-
-      // Store in IndexedDB using idb-keyval
-      await set(path, { blob, contentType, compressed }, assetStore);
-
-      filesExtracted++;
-      const progress = 50 + Math.round((filesExtracted / totalEstimatedFiles) * 50);
-      onProgress?.(`Extracting files... (${filesExtracted})`, Math.min(progress, 99));
-    } else if (tarEntry.readable) {
-      await tarEntry.readable.cancel();
-    }
-  }
-
-  onProgress?.("Complete!", 100);
-  return filesExtracted;
-}
-
-/**
  * Get cached asset from IndexedDB
  */
 export async function getCachedAsset(path: string): Promise<{
@@ -210,15 +85,6 @@ export async function getCachedAsset(path: string): Promise<{
 } | undefined> {
   const { get } = await import("idb-keyval");
   return get(path, assetStore);
-}
-
-/**
- * Check if bundle is already extracted (by checking for index.html)
- */
-export async function isBundleExtracted(): Promise<boolean> {
-  const { get } = await import("idb-keyval");
-  const indexHtml = await get("/index.html", assetStore);
-  return !!indexHtml;
 }
 
 /**

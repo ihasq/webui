@@ -102,15 +102,13 @@ self.addEventListener("install", (event: ExtendableEvent) => {
               await set("buildId", BUILD_ID, metaStore);
             });
           });
-
-          // Skip waiting to activate immediately after index.html is ready
-          self.skipWaiting();
         }
-      } catch (err) {
-        throw err;
-      }
 
-      self.skipWaiting();
+        // Skip waiting to activate immediately
+        self.skipWaiting();
+      } catch {
+        // Installation failed - let browser handle retry
+      }
     })()
   );
 });
