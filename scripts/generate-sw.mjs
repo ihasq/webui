@@ -96,18 +96,33 @@ const buildHash = createHash("sha256")
 const buildTime = Date.now();
 const buildId = `${buildHash}-${buildTime}`;
 
-// Step 5: Generate bundle.tar.zst
+// Step 5: Generate bundle.tar.zst with optimized file order
+// Order: index.html first (for immediate display), then main JS/CSS, then other assets
 let bundleInfo = null;
 try {
   execSync("which zstd", { stdio: "ignore" });
 
-  // Create file list for tar, renaming app.html to index.html
-  // We use --transform to rename app.html to index.html in the archive
-  const tarFilesList = bundleFilesWithAppHtml.map((f) => f.slice(1)).join(" ");
+  // Separate files by priority for optimal streaming load order
+  const mainJsCss = bundleFilesWithAppHtml.filter(
+    (f) => f.match(/^\/assets\/main-[^/]+\.(js|css)$/)
+  );
+  const otherAssets = bundleFilesWithAppHtml.filter(
+    (f) => !f.match(/^\/assets\/main-[^/]+\.(js|css)$/)
+  );
+
+  // Build ordered file list: app.html (becomes index.html) → main JS/CSS → other assets
+  const orderedFiles = [
+    "app.html",
+    ...mainJsCss.map((f) => f.slice(1)),
+    ...otherAssets.map((f) => f.slice(1)),
+  ];
+
+  console.log(`Tar order: app.html (→index.html), ${mainJsCss.length} main assets, ${otherAssets.length} other files`);
 
   // Create tar with app.html renamed to index.html
+  const tarFilesList = orderedFiles.join(" ");
   execSync(
-    `tar -cf - --transform='s/^app\\.html$/index.html/' app.html ${tarFilesList} | zstd --ultra -22 -o bundle.tar.zst`,
+    `tar -cf - --transform='s/^app\\.html$/index.html/' ${tarFilesList} | zstd -f --ultra -22 -o bundle.tar.zst`,
     {
       cwd: distDir,
       stdio: "inherit",

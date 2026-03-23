@@ -1,19 +1,18 @@
 /**
- * Service Worker with Bundle-based Installation
+ * Service Worker with Streaming Bundle Installation
  *
- * This SW downloads and extracts bundle.tar.zst during installation,
- * then serves assets from IndexedDB cache.
+ * Extracts bundle.tar.zst progressively and serves files as they become available.
+ * Sends APP_READY message as soon as index.html is extracted.
  */
 
 /// <reference lib="webworker" />
 
 import { get, set, createStore } from "idb-keyval";
-import { extractBundle, getCachedAsset } from "./bundle-extractor";
+import { extractBundleStreaming, getCachedAsset } from "./bundle-extractor";
 
 declare const self: ServiceWorkerGlobalScope;
 
 // These will be replaced by generate-sw.mjs
-// Using quoted strings as placeholders so they survive minification
 const BUILD_ID: string = "%%BUILD_ID%%";
 const BUNDLE_INFO: { url: string; size: number; hash: string } | null = JSON.parse("%%BUNDLE_INFO%%");
 
@@ -21,17 +20,12 @@ const BUNDLE_INFO: { url: string; size: number; hash: string } | null = JSON.par
 const metaStore = createStore("asset-cache", "meta");
 
 /**
- * Broadcast progress to all clients
+ * Notify all clients that app is ready
  */
-async function broadcastProgress(phase: string, progress?: number, message?: string) {
+async function notifyAppReady() {
   const clients = await self.clients.matchAll();
   for (const client of clients) {
-    client.postMessage({
-      type: "INSTALL_PROGRESS",
-      phase,
-      progress,
-      message: message || phase,
-    });
+    client.postMessage({ type: "APP_READY" });
   }
 }
 
@@ -53,7 +47,7 @@ function decompressResponse(blob: Blob, contentType: string, compressed: boolean
 }
 
 /**
- * Install event: Download and extract bundle
+ * Install event: Extract bundle with streaming
  */
 self.addEventListener("install", (event: ExtendableEvent) => {
   event.waitUntil(
@@ -63,31 +57,27 @@ self.addEventListener("install", (event: ExtendableEvent) => {
         const installedBuild = await get("buildId", metaStore);
         if (installedBuild === BUILD_ID) {
           console.log("[SW] Bundle already extracted for this build");
-          await broadcastProgress("Ready!", 100);
           self.skipWaiting();
           return;
         }
 
-        // Extract bundle
+        // Extract bundle with streaming
         if (BUNDLE_INFO) {
-          await broadcastProgress("Starting installation...", 0);
-
-          const filesExtracted = await extractBundle(BUNDLE_INFO, (phase, progress) => {
-            broadcastProgress(phase, progress);
+          await extractBundleStreaming(BUNDLE_INFO, async (path) => {
+            // When index.html is ready, notify clients immediately
+            if (path === "/index.html") {
+              await notifyAppReady();
+            }
           });
 
           // Store build ID
           await set("buildId", BUILD_ID, metaStore);
-
-          console.log(`[SW] Extracted ${filesExtracted} files from bundle`);
-          await broadcastProgress("Installation complete!", 100);
+          console.log("[SW] Bundle extraction complete");
         } else {
           console.warn("[SW] No bundle info available");
-          await broadcastProgress("No bundle available", 100);
         }
       } catch (err) {
         console.error("[SW] Installation failed:", err);
-        await broadcastProgress("Installation failed: " + (err as Error).message, 0);
         throw err;
       }
 
@@ -115,7 +105,7 @@ self.addEventListener("message", (event: ExtendableMessageEvent) => {
 });
 
 /**
- * Fetch event: Serve from cache
+ * Fetch event: Serve from cache, fallback to network
  */
 self.addEventListener("fetch", (event: FetchEvent) => {
   const url = new URL(event.request.url);
@@ -137,7 +127,7 @@ self.addEventListener("fetch", (event: FetchEvent) => {
       const pathname = url.pathname === "/" ? "/index.html" : url.pathname;
 
       try {
-        // Try to get from cache
+        // Try to get from cache first
         const cached = await getCachedAsset(pathname);
         if (cached) {
           return decompressResponse(cached.blob, cached.contentType, cached.compressed);
@@ -153,7 +143,6 @@ self.addEventListener("fetch", (event: FetchEvent) => {
       } catch {
         // Offline and not cached
         if (event.request.mode === "navigate") {
-          // Try to return cached index.html
           const indexCached = await getCachedAsset("/index.html");
           if (indexCached) {
             return decompressResponse(indexCached.blob, indexCached.contentType, indexCached.compressed);

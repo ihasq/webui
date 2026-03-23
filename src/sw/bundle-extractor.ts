@@ -220,3 +220,66 @@ export async function isBundleExtracted(): Promise<boolean> {
   const indexHtml = await get("/index.html", assetStore);
   return !!indexHtml;
 }
+
+/**
+ * Streaming bundle extraction - extracts files as they arrive
+ * Calls onFileReady callback for each file as it's stored
+ */
+export async function extractBundleStreaming(
+  bundleInfo: BundleInfo,
+  onFileReady?: (path: string) => void | Promise<void>
+): Promise<number> {
+  const response = await fetch(bundleInfo.url, { cache: "no-store" });
+  if (!response.ok || !response.body) {
+    throw new Error(`Failed to download bundle: ${response.status}`);
+  }
+
+  // Stream directly through zstd decompression and tar extraction
+  const decompressedStream = response.body.pipeThrough(
+    new ZstdDecompressionStream()
+  );
+  const tarStream = decompressedStream.pipeThrough(new UntarStream());
+  const tarReader = tarStream.getReader();
+
+  let filesExtracted = 0;
+
+  while (true) {
+    const { done, value: entry } = await tarReader.read();
+    if (done) break;
+
+    const tarEntry = entry as TarStreamEntry;
+    const typeflag = tarEntry.header.typeflag ?? "0";
+
+    // Regular file
+    if ((typeflag === "0" || typeflag === "") && tarEntry.readable) {
+      const fileData = await readStream(tarEntry.readable);
+      const path = "/" + tarEntry.path;
+      const contentType = getContentType(path);
+      const skipCompression = shouldSkipCompression(contentType);
+
+      let blob: Blob;
+      let compressed: boolean;
+
+      if (skipCompression || typeof CompressionStream === "undefined") {
+        blob = new Blob([new Uint8Array(fileData)]);
+        compressed = false;
+      } else {
+        blob = await compressWithGzip(fileData);
+        compressed = true;
+      }
+
+      // Store in IndexedDB
+      await set(path, { blob, contentType, compressed }, assetStore);
+      filesExtracted++;
+
+      // Notify that this file is ready
+      if (onFileReady) {
+        await onFileReady(path);
+      }
+    } else if (tarEntry.readable) {
+      await tarEntry.readable.cancel();
+    }
+  }
+
+  return filesExtracted;
+}
