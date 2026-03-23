@@ -160,6 +160,8 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("message", (event) => {
   if (event.data?.type === "GET_BUILD_ID") {
     event.ports[0].postMessage({ buildId: BUILD_ID });
+  } else if (event.data?.type === "GET_CACHE_VERSION") {
+    event.ports[0].postMessage({ cacheVersion: CACHE_VERSION });
   } else if (event.data?.type === "SKIP_WAITING") {
     self.skipWaiting();
   } else if (event.data?.type === "CLEAR_CACHE") {

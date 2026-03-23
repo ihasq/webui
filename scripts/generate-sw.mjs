@@ -1,6 +1,7 @@
 import { readdirSync, statSync, writeFileSync, readFileSync } from "fs";
 import { join, relative } from "path";
 import { createHash } from "crypto";
+import { execSync } from "child_process";
 
 const distDir = join(import.meta.dirname, "../dist");
 
@@ -21,9 +22,13 @@ function getAllFiles(dir, baseDir = dir) {
 
 const allFiles = getAllFiles(distDir);
 
-// Filter out sw.js itself, source maps, and version.json
+// Filter out sw.js itself, source maps, version.json, and bundle files
 const assets = allFiles.filter(
-  (f) => !f.endsWith(".map") && f !== "/sw.js" && f !== "/version.json"
+  (f) =>
+    !f.endsWith(".map") &&
+    f !== "/sw.js" &&
+    f !== "/version.json" &&
+    f !== "/bundle.tar.zst"
 );
 
 // Generate build ID from content hash of main assets
@@ -37,12 +42,46 @@ const buildHash = createHash("sha256").update(hashContent).digest("hex").slice(0
 const buildTime = Date.now();
 const buildId = `${buildHash}-${buildTime}`;
 
+// Generate bundle.tar.zst
+let bundleInfo = null;
+try {
+  // Check if zstd is available
+  execSync("which zstd", { stdio: "ignore" });
+
+  // Create tar archive and compress with zstd level 22
+  // Use relative paths from dist directory
+  const tarFiles = assets.map((f) => f.slice(1)).join(" ");
+  execSync(`tar -cf - ${tarFiles} | zstd --ultra -22 -o bundle.tar.zst`, {
+    cwd: distDir,
+    stdio: "inherit",
+  });
+
+  // Get bundle size and hash
+  const bundlePath = join(distDir, "bundle.tar.zst");
+  const bundleData = readFileSync(bundlePath);
+  const bundleSize = bundleData.length;
+  const bundleHash = createHash("sha256").update(bundleData).digest("hex").slice(0, 16);
+
+  bundleInfo = {
+    url: "/bundle.tar.zst",
+    size: bundleSize,
+    hash: bundleHash,
+  };
+
+  console.log(
+    `Generated bundle.tar.zst (${(bundleSize / 1024 / 1024).toFixed(2)} MB, hash: ${bundleHash})`
+  );
+} catch (err) {
+  console.warn("zstd not available, skipping bundle generation:", err.message);
+}
+
 // Generate version.json
 const versionInfo = {
   buildId,
   buildHash,
   buildTime,
   buildDate: new Date(buildTime).toISOString(),
+  ...(bundleInfo && { bundle: bundleInfo }),
 };
 writeFileSync(join(distDir, "version.json"), JSON.stringify(versionInfo, null, 2));
 console.log(`Generated version.json with buildId: ${buildId}`);
